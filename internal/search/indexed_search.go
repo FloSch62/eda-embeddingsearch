@@ -9,17 +9,16 @@ import (
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
 )
 
-// IndexedSearch performs fast search using the prebuilt inverted index
-// and falls back to the full search if no candidates are found.
+// IndexedSearch performs fast search using the prebuilt inverted index.
 func (e *Engine) IndexedSearch(query string) []models.SearchResult {
 	words := ExpandSynonyms(Tokenize(query))
 
 	isSROSDB := e.detectSROSDatabase()
 	candidateKeys := e.getCandidateKeys(words, query, isSROSDB)
 
-	// If no candidates from index, fall back to full search
+	// If no candidates from index, return no results
 	if len(candidateKeys) == 0 {
-		return e.Search(query)
+		return nil
 	}
 
 	// Score candidates and generate results
@@ -109,7 +108,6 @@ func (e *Engine) generateIndexedSearchResults(candidates []scoredCandidate, quer
 			EQLQuery:        eqlQuery,
 			Description:     description,
 			AvailableFields: fields,
-			Explanation:     e.generateExplanation(cand.key, query, cand.score),
 		})
 	}
 
