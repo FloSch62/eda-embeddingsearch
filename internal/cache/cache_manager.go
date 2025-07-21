@@ -1,3 +1,5 @@
+// Package cache provides utilities to load and store embedding databases
+// using an on-disk binary cache and an in-memory cache.
 package cache
 
 import (

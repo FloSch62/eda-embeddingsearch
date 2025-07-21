@@ -1,3 +1,5 @@
+// Package search contains the indexed search implementation that uses an
+// inverted index for fast candidate retrieval.
 package search
 
 import (

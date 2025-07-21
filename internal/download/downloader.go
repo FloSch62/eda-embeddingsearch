@@ -1,3 +1,5 @@
+// Package download handles retrieval and extraction of embedding databases from
+// remote release archives.
 package download
 
 import (

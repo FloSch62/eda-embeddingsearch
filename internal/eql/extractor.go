@@ -1,3 +1,5 @@
+// Package eql contains helpers for extracting fields from embedding entries
+// and constructing EQL statements.
 package eql
 
 import (

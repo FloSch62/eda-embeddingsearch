@@ -1,3 +1,5 @@
+// Package search provides scoring logic to evaluate how well each embedding
+// matches a given query.
 package search
 
 import (

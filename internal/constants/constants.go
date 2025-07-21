@@ -1,3 +1,5 @@
+// Package constants defines scoring weights and operational thresholds used
+// throughout the search engine.
 package constants
 
 // Search and scoring constants

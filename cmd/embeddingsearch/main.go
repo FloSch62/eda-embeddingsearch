@@ -1,3 +1,4 @@
+// Command embeddingsearch is the entry point for the embedding search CLI.
 package main
 
 import (

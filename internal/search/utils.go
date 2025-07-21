@@ -1,3 +1,5 @@
+// Package search contains utility helpers for parsing embedding metadata and
+// other small tasks.
 package search
 
 import (

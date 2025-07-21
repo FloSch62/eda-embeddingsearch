@@ -1,3 +1,4 @@
+// Package test contains unit tests for the search package utilities.
 package test
 
 //nolint:misspell // test inputs intentionally contain misspellings

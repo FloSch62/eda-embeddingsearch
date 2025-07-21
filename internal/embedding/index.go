@@ -1,3 +1,5 @@
+// Package embedding provides helpers to build and load embedding indexes for
+// efficient lookups in the search engine.
 package embedding
 
 import (

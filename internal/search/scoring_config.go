@@ -1,3 +1,5 @@
+// Package search defines configuration parameters for scoring search results
+// across different matching dimensions.
 package search
 
 // ScoringConfig contains all the scoring weights and penalties

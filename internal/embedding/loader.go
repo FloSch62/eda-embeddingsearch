@@ -1,3 +1,5 @@
+// Package embedding contains logic for loading embedding databases from disk
+// using a cache to speed up subsequent loads.
 package embedding
 
 import (

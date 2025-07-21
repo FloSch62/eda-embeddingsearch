@@ -1,3 +1,5 @@
+// Package search implements tokenization and simple natural language helpers
+// used throughout the search functionality.
 package search
 
 import (

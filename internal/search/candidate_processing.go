@@ -1,3 +1,5 @@
+// Package search contains helper functions for ranking and filtering candidate
+// results using heuristic scores.
 package search
 
 import (

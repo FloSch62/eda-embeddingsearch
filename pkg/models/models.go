@@ -1,3 +1,5 @@
+// Package models defines the data structures used by the embedding search
+// engine, including embeddings and inverted indexes.
 package models
 
 import (

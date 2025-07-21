@@ -1,3 +1,5 @@
+// Package search implements the core search engine that ranks candidate
+// embeddings based on query relevance.
 package search
 
 import (
