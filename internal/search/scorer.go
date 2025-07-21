@@ -2,21 +2,12 @@ package search
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/eda-labs/eda-embeddingsearch/internal/eql"
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
 )
-
-// contains checks if a slice contains a string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
 
 // ScoringRule represents a parameterized scoring rule
 type ScoringRule struct {
@@ -128,14 +119,14 @@ func (e *Engine) keywordScoreV2(keyTokens, textTokens, words []string) float64 {
 	}
 
 	for _, w := range words {
-		if contains(keyTokens, w) {
+		if slices.Contains(keyTokens, w) {
 			pathMatchCount++
 			if scoreVal, ok := wordScores[w]; ok {
 				score += scoreVal
 			} else {
 				score += e.config.KeywordMatchDefault
 			}
-		} else if contains(textTokens, w) {
+		} else if slices.Contains(textTokens, w) {
 			score += e.config.TextMatch
 		}
 	}
@@ -165,7 +156,7 @@ func (e *Engine) descriptionScoreV2(queryLower string, entry models.EmbeddingEnt
 	// Count matching words
 	descMatchCount := 0
 	for _, w := range words {
-		if contains(descTokens, w) {
+		if slices.Contains(descTokens, w) {
 			descMatchCount++
 			score += e.config.DescriptionWordMatch
 		}

@@ -4,20 +4,11 @@ package test
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/eda-labs/eda-embeddingsearch/internal/search"
 )
-
-// contains checks if a slice contains a string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
 
 func TestTokenize(t *testing.T) {
 	tests := []struct {
@@ -141,7 +132,7 @@ func TestContains(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := contains(tt.tokens, tt.word)
+			result := slices.Contains(tt.tokens, tt.word)
 			if result != tt.expected {
 				t.Errorf("Contains(%v, %q) = %v, want %v", tt.tokens, tt.word, result, tt.expected)
 			}
