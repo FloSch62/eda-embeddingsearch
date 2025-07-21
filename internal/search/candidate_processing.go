@@ -13,11 +13,10 @@ type scoredCandidate struct {
 }
 
 func (e *Engine) scoreCandidates(candidateKeys map[string]int, query string, words []string) []scoredCandidate {
-	bigrams := generateBigrams(words)
 	candidates := make([]scoredCandidate, 0, len(candidateKeys))
 
 	for key, matchCount := range candidateKeys {
-		score := e.calculateCandidateScore(key, matchCount, query, words, bigrams)
+		score := e.calculateCandidateScore(key, matchCount, query, words)
 		threshold := getScoreThreshold(key)
 
 		if score > threshold {
@@ -36,7 +35,7 @@ func (e *Engine) scoreCandidates(candidateKeys map[string]int, query string, wor
 	return candidates
 }
 
-func (e *Engine) calculateCandidateScore(key string, matchCount int, query string, words, bigrams []string) float64 {
+func (e *Engine) calculateCandidateScore(key string, matchCount int, query string, words []string) float64 {
 	entry := e.db.Table[key]
 
 	// Base score from inverted index matches
@@ -48,7 +47,7 @@ func (e *Engine) calculateCandidateScore(key string, matchCount int, query strin
 	}
 
 	// Additional scoring
-	additionalScore := e.scoreEntry(key, entry, query, words, bigrams)
+	additionalScore := e.scoreEntry(key, entry, query, words)
 
 	return baseScore + additionalScore
 }
@@ -68,12 +67,4 @@ func getScoreThreshold(key string) float64 {
 		return constants.SROSScoreThreshold
 	}
 	return constants.DefaultScoreThreshold
-}
-
-func generateBigrams(words []string) []string {
-	bigrams := make([]string, 0, len(words)-1)
-	for i := 0; i < len(words)-1; i++ {
-		bigrams = append(bigrams, words[i]+" "+words[i+1])
-	}
-	return bigrams
 }

@@ -11,7 +11,6 @@ import (
 // Search performs a full search across all embeddings
 func (e *Engine) Search(query string) []models.SearchResult {
 	words := ExpandSynonyms(Tokenize(query))
-	bigrams := generateBigrams(words)
 
 	results := make([]models.SearchResult, 0)
 
@@ -21,7 +20,7 @@ func (e *Engine) Search(query string) []models.SearchResult {
 	}
 
 	// Find best candidates using parallel search
-	candidates := e.findTopCandidates(query, words, bigrams)
+	candidates := e.findTopCandidates(query, words)
 
 	// Convert candidates to search results
 	results = e.convertCandidatesToResults(candidates, query, results)
@@ -80,7 +79,7 @@ type candidate struct {
 	score float64
 }
 
-func (e *Engine) findTopCandidates(query string, words, bigrams []string) []candidate {
+func (e *Engine) findTopCandidates(query string, words []string) []candidate {
 	const scoreThreshold = constants.MinScoreThreshold
 	const maxCandidates = constants.MaxCandidates
 
@@ -89,7 +88,7 @@ func (e *Engine) findTopCandidates(query string, words, bigrams []string) []cand
 
 	// Process all entries directly without parallelism
 	for key, entry := range e.db.Table {
-		score := e.scoreEntry(key, entry, query, words, bigrams)
+		score := e.scoreEntry(key, entry, query, words)
 
 		if score > scoreThreshold {
 			// Update top candidates inline
