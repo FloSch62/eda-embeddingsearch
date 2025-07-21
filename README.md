@@ -27,10 +27,16 @@ Download the appropriate binary for your platform from the [releases page](https
 ```bash
 git clone https://github.com/eda-labs/eda-embeddingsearch.git
 cd eda-embeddingsearch
-./build.sh
+make build
 ```
 
-Binaries will be created in the `bin/` directory for all platforms.
+Binaries will be created in the `bin/` directory for all platforms:
+- Linux: `bin/linux/embeddingsearch`
+- macOS Intel: `bin/darwin/embeddingsearch`
+- macOS ARM64: `bin/darwin/embeddingsearch-arm64`
+- Windows: `bin/win32/embeddingsearch.exe`
+
+For other build options, run `make help`.
 
 ## Usage
 
@@ -95,50 +101,72 @@ Options:
 
 ## Examples
 
-### Simple State Query
+### Simple Query
 ```bash
-$ embeddingsearch "show bgp summary"
+$ embeddingsearch "show interfaces"
 
-EQL Query:
-/network-instance[name=*]/protocols/bgp/summary
+Top match (score: 84.00):
+.namespace.node.srl.acl.interface
+
+Other possible matches:
+1. .namespace.node.srl.interface (score: 84.00)
+2. .namespace.node.srl.network-instance.interface (score: 74.00)
+3. .namespace.node.srl.system.lldp.interface (score: 74.00)
+...
 ```
 
 ### Top N with Ordering
 ```bash
 $ embeddingsearch "top 5 processes by memory"
 
-EQL Query:
-/system/processes/process[name=*]
-  | fields name memory-usage
-  | where memory-usage > 0
-  | sort-by memory-usage desc
-  | limit 5
+Top match (score: 50.00):
+.namespace.node.srl.platform.control.memory order by [utilization descending] limit 5
+
+Other possible matches:
+1. .namespace.node.srl.platform.linecard.forwarding-complex.buffer-memory fields [used] order by [used descending] limit 5 (score: 23.50)
+...
 ```
 
-### Filtered Query
+### BGP Query with Fields
 ```bash
-$ embeddingsearch "interfaces where admin-state is enable"
+$ embeddingsearch "bgp neighbors"
 
-EQL Query:
-/interface[name=*]
-  | fields name admin-state oper-state
-  | where admin-state = "enable"
+Top match (score: 62.50):
+.namespace.node.srl.network-instance.protocols.bgp.neighbor fields [admin-state, session-state, last-state]
 ```
 
 ### JSON Output
 ```bash
-$ embeddingsearch -json "cpu usage"
+$ embeddingsearch -json "interface ethernet-1/1"
 
 {
-  "results": [
-    {
-      "path": "/system/cpu",
-      "score": 15.234,
-      "eql_query": "/system/cpu"
-    }
-  ],
-  "platform": "srl"
+  "topMatch": {
+    "score": 75,
+    "query": ".namespace.node.srl.interface",
+    "table": ".namespace.node.srl.interface",
+    "description": "The list of named interfaces on the device",
+    "availableFields": [
+      "admin-state",
+      "description",
+      "mtu",
+      "oper-state",
+      ...
+    ]
+  },
+  "others": [...]
 }
+```
+
+### Verbose Mode
+```bash
+$ embeddingsearch -v "bgp neighbors"
+
+Top match (score: 62.50):
+.namespace.node.srl.network-instance.protocols.bgp.neighbor fields [admin-state, session-state, last-state]
+
+Query components:
+  Table: .namespace.node.srl.network-instance.protocols.bgp.neighbor
+  Fields: admin-state, session-state, last-state
 ```
 
 ## Advanced Features
