@@ -77,7 +77,7 @@ install: build-local
 
 lint:
 	@echo "Running linters..."
-	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
+	@which golangci-lint > /dev/null || (echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest" && exit 1)
 	golangci-lint run
 
 fmt:
@@ -96,7 +96,7 @@ check: fmt vet
 # Development helpers
 dev-deps:
 	@echo "Installing development dependencies..."
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	go install golang.org/x/tools/cmd/goimports@latest
 
 run:
