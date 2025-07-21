@@ -193,9 +193,9 @@ func (e *Engine) Search(query string) []models.SearchResult {
 
 	// Aggressive optimization for top-10 results only
 	const maxWorkers = 4
-	const chunkSize = 2000       // Larger chunks for better throughput
-	const scoreThreshold = 5.0   // Higher threshold for faster filtering
-	const maxCandidates = 20     // Only keep top 20 candidates during processing
+	const chunkSize = 2000     // Larger chunks for better throughput
+	const scoreThreshold = 5.0 // Higher threshold for faster filtering
+	const maxCandidates = 20   // Only keep top 20 candidates during processing
 
 	keys := make([]string, 0, len(e.db.Table))
 	for key := range e.db.Table {
@@ -211,6 +211,9 @@ func (e *Engine) Search(query string) []models.SearchResult {
 	candidateChan := make(chan candidate, 50)
 	var wg sync.WaitGroup
 
+	// Create a semaphore to limit concurrent workers
+	semaphore := make(chan struct{}, maxWorkers)
+
 	// Process in chunks with early termination
 	for i := 0; i < len(keys); i += chunkSize {
 		end := i + chunkSize
@@ -219,8 +222,12 @@ func (e *Engine) Search(query string) []models.SearchResult {
 		}
 
 		wg.Add(1)
+		// Acquire semaphore slot
+		semaphore <- struct{}{}
+		
 		go func(start, end int) {
 			defer wg.Done()
+			defer func() { <-semaphore }() // Release semaphore slot
 
 			for j := start; j < end; j++ {
 				key := keys[j]

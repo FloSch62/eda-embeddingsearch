@@ -3,10 +3,19 @@
 
 run:
   timeout: 5m
-  skip-dirs-use-default: true
-  skip-dirs:
+
+issues:
+  exclude-dirs-use-default: true
+  exclude-dirs:
     - bin
     - dist
+  exclude-use-default: false
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - gosec
 
 linters:
   enable:
@@ -31,12 +40,3 @@ linters-settings:
       - style
     disabled-checks:
       - commentFormatting
-
-issues:
-  exclude-use-default: false
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - errcheck
-        - gosec

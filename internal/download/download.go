@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	srlEmbeddingURL  = "https://github.com/nokia-eda/llm-embeddings/releases/download/nokia-srl-25.3.3/llm-embeddings-srl-25-3-3.tar.gz"
-	srosEmbeddingURL = "https://github.com/nokia-eda/llm-embeddings/releases/download/nokia-sros-v25.3.r2/llm-embeddings-sros-25-3-r2.tar.gz"
-	srlEmbeddingFile = "ce-llm-embed-db-srl-25.3.3.json"
+	srlEmbeddingURL   = "https://github.com/nokia-eda/llm-embeddings/releases/download/nokia-srl-25.3.3/llm-embeddings-srl-25-3-3.tar.gz"
+	srosEmbeddingURL  = "https://github.com/nokia-eda/llm-embeddings/releases/download/nokia-sros-v25.3.r2/llm-embeddings-sros-25-3-r2.tar.gz"
+	srlEmbeddingFile  = "ce-llm-embed-db-srl-25.3.3.json"
 	srosEmbeddingFile = "ce-llm-embed-db-sros-25.3.r1.json"
 )
 
