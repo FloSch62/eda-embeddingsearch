@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/eda-labs/eda-embeddingsearch/internal/constants"
 	"github.com/eda-labs/eda-embeddingsearch/internal/utils"
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
 )
@@ -208,7 +209,7 @@ func extractAlarmConditions(lower, tablePath string, conditions map[string]strin
 
 func extractProcessConditions(lower, tablePath string, conditions map[string]string) {
 	if strings.Contains(tablePath, "process") && strings.Contains(lower, "high memory") {
-		conditions["memory-usage-threshold"] = "> 80"
+		conditions["memory-usage-threshold"] = "> " + strconv.Itoa(constants.DefaultHighMemoryThreshold)
 	}
 }
 
@@ -410,7 +411,7 @@ func ExtractLimit(query string) int {
 	for _, pattern := range patterns {
 		re := regexp.MustCompile(pattern)
 		if matches := re.FindStringSubmatch(lower); len(matches) > 1 {
-			if limit, err := strconv.Atoi(matches[1]); err == nil && limit > 0 && limit <= 1000 {
+			if limit, err := strconv.Atoi(matches[1]); err == nil && limit > 0 && limit <= constants.MaxLimitValue {
 				return limit
 			}
 		}
@@ -418,7 +419,7 @@ func ExtractLimit(query string) int {
 
 	// Default limits for certain queries
 	if strings.Contains(lower, "top") || strings.Contains(lower, "highest") {
-		return 10
+		return constants.DefaultTopLimit
 	}
 
 	return 0
@@ -450,7 +451,7 @@ func ExtractDelta(query string) *models.DeltaClause {
 	if strings.Contains(lower, "real") && strings.Contains(lower, "time") {
 		return &models.DeltaClause{
 			Unit:  "seconds",
-			Value: 1,
+			Value: constants.RealTimeIntervalSeconds,
 		}
 	}
 

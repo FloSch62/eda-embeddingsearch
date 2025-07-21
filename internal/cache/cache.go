@@ -1,91 +1,38 @@
 package cache
 
 import (
-	"encoding/gob"
-	"os"
-	"path/filepath"
-	"sync"
-
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
 )
 
-// Global cache for loaded databases
-var (
-	dbCache    = make(map[string]*models.EmbeddingDB)
-	cacheMutex sync.RWMutex
-)
+// Global cache instance for backward compatibility
+var globalCache = NewManager()
 
-// GetFromMemory retrieves a database from memory cache
+// GetFromMemory retrieves a database from memory cache (deprecated: use Manager)
 func GetFromMemory(path string) (*models.EmbeddingDB, bool) {
-	cacheMutex.RLock()
-	defer cacheMutex.RUnlock()
-	db, exists := dbCache[path]
-	return db, exists
+	return globalCache.GetFromMemory(path)
 }
 
-// StoreInMemory stores a database in memory cache
+// StoreInMemory stores a database in memory cache (deprecated: use Manager)
 func StoreInMemory(path string, db *models.EmbeddingDB) {
-	cacheMutex.Lock()
-	defer cacheMutex.Unlock()
-	dbCache[path] = db
+	globalCache.StoreInMemory(path, db)
 }
 
-// GetBinaryCachePath returns the path for the binary cache file
+// GetBinaryCachePath returns the path for the binary cache file (deprecated: use Manager)
 func GetBinaryCachePath(jsonPath string) string {
-	dir := filepath.Dir(jsonPath)
-	base := filepath.Base(jsonPath)
-	return filepath.Join(dir, "."+base+".cache")
+	return globalCache.GetBinaryCachePath(jsonPath)
 }
 
-// SaveBinaryCache saves the database to a binary cache file
+// SaveBinaryCache saves the database to a binary cache file (deprecated: use Manager)
 func SaveBinaryCache(db *models.EmbeddingDB, cachePath string) error {
-	file, err := os.Create(cachePath)
-	if err != nil {
-		return err
-	}
-
-	enc := gob.NewEncoder(file)
-	if err = enc.Encode(db); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if cerr := file.Close(); cerr != nil {
-		return cerr
-	}
-	return nil
+	return globalCache.SaveBinaryCache(db, cachePath)
 }
 
-// LoadBinaryCache loads the database from a binary cache file
+// LoadBinaryCache loads the database from a binary cache file (deprecated: use Manager)
 func LoadBinaryCache(cachePath string) (*models.EmbeddingDB, error) {
-	file, err := os.Open(cachePath)
-	if err != nil {
-		return nil, err
-	}
-
-	var db models.EmbeddingDB
-	dec := gob.NewDecoder(file)
-	if err = dec.Decode(&db); err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	if cerr := file.Close(); cerr != nil {
-		return nil, cerr
-	}
-
-	return &db, nil
+	return globalCache.LoadBinaryCache(cachePath)
 }
 
-// IsBinaryCacheValid checks if binary cache exists and is newer than JSON
+// IsBinaryCacheValid checks if binary cache exists and is newer than JSON (deprecated: use Manager)
 func IsBinaryCacheValid(jsonPath, cachePath string) bool {
-	jsonInfo, err := os.Stat(jsonPath)
-	if err != nil {
-		return false
-	}
-
-	cacheInfo, err := os.Stat(cachePath)
-	if err != nil {
-		return false
-	}
-
-	return cacheInfo.ModTime().After(jsonInfo.ModTime())
+	return globalCache.IsBinaryCacheValid(jsonPath, cachePath)
 }

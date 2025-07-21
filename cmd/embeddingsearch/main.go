@@ -33,13 +33,21 @@ func main() {
 
 	query := strings.Join(flag.Args(), " ")
 
-	// Override platform detection if specified
+	// Determine platform
+	var platform models.EmbeddingType
 	if *platformStr != "" {
-		if *platformStr == "sros" {
-			// Prepend SROS to query to force SROS detection
-			query = "SROS " + query
+		switch strings.ToLower(*platformStr) {
+		case "sros":
+			platform = models.SROS
+		case "srl":
+			platform = models.SRL
+		default:
+			fmt.Fprintf(os.Stderr, "Invalid platform: %s (must be 'srl' or 'sros')\n", *platformStr)
+			os.Exit(1)
 		}
-		// For SRL, no need to prepend anything as it's the default
+	} else {
+		// Auto-detect from query if not specified
+		platform = download.DetectPlatformFromQuery(query)
 	}
 
 	// Determine the database path
@@ -47,9 +55,10 @@ func main() {
 	if *dbPath != "" {
 		finalDBPath = *dbPath
 	} else {
-		// Auto-download embeddings if not specified (based on query content)
+		// Auto-download embeddings if not specified
+		downloadManager := download.NewManager()
 		var err error
-		finalDBPath, err = download.DownloadAndExtractEmbeddings(query, !*jsonOutput)
+		finalDBPath, err = downloadManager.EnsureEmbeddings(platform, !*jsonOutput)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to download embeddings: %v\n", err)
 			os.Exit(1)
@@ -83,113 +92,23 @@ func main() {
 }
 
 func outputJSON(results []models.SearchResult) {
-	type JSONResult struct {
-		Score           float64  `json:"score"`
-		Query           string   `json:"query"`
-		Table           string   `json:"table"`
-		Description     string   `json:"description,omitempty"`
-		AvailableFields []string `json:"availableFields,omitempty"`
-		Fields          []string `json:"fields,omitempty"`
-		Where           string   `json:"where,omitempty"`
-		OrderBy         []struct {
-			Field     string `json:"field"`
-			Direction string `json:"direction"`
-			Algorithm string `json:"algorithm,omitempty"`
-		} `json:"orderBy,omitempty"`
-		Limit int `json:"limit,omitempty"`
-		Delta *struct {
-			Unit  string `json:"unit"`
-			Value int    `json:"value"`
-		} `json:"delta,omitempty"`
-	}
-
 	type JSONOutput struct {
-		TopMatch JSONResult   `json:"topMatch"`
-		Others   []JSONResult `json:"others,omitempty"`
+		TopMatch *models.SearchResult   `json:"topMatch"`
+		Others   []*models.SearchResult `json:"others,omitempty"`
 	}
 
-	// Convert top match
-	top := results[0]
-	topMatch := JSONResult{
-		Score:           top.Score,
-		Query:           top.EQLQuery.String(),
-		Table:           top.EQLQuery.Table,
-		Description:     top.Description,
-		AvailableFields: top.AvailableFields,
-		Fields:          top.EQLQuery.Fields,
-		Where:           top.EQLQuery.WhereClause,
-		Limit:           top.EQLQuery.Limit,
-	}
+	output := JSONOutput{TopMatch: &results[0]}
 
-	if len(top.EQLQuery.OrderBy) > 0 {
-		for _, ob := range top.EQLQuery.OrderBy {
-			topMatch.OrderBy = append(topMatch.OrderBy, struct {
-				Field     string `json:"field"`
-				Direction string `json:"direction"`
-				Algorithm string `json:"algorithm,omitempty"`
-			}{
-				Field:     ob.Field,
-				Direction: ob.Direction,
-				Algorithm: ob.Algorithm,
-			})
-		}
-	}
-
-	if top.EQLQuery.Delta != nil {
-		topMatch.Delta = &struct {
-			Unit  string `json:"unit"`
-			Value int    `json:"value"`
-		}{
-			Unit:  top.EQLQuery.Delta.Unit,
-			Value: top.EQLQuery.Delta.Value,
-		}
-	}
-
-	output := JSONOutput{TopMatch: topMatch}
-
-	// Add other matches
+	// Add other matches (limit to 9 more for total of 10)
 	maxOthers := 9
 	if len(results)-1 < maxOthers {
 		maxOthers = len(results) - 1
 	}
-	for i := 1; i <= maxOthers; i++ {
-		r := results[i]
-		other := JSONResult{
-			Score:           r.Score,
-			Query:           r.EQLQuery.String(),
-			Table:           r.EQLQuery.Table,
-			Description:     r.Description,
-			AvailableFields: r.AvailableFields,
-			Fields:          r.EQLQuery.Fields,
-			Where:           r.EQLQuery.WhereClause,
-			Limit:           r.EQLQuery.Limit,
+	if maxOthers > 0 {
+		output.Others = make([]*models.SearchResult, maxOthers)
+		for i := 0; i < maxOthers; i++ {
+			output.Others[i] = &results[i+1]
 		}
-
-		if len(r.EQLQuery.OrderBy) > 0 {
-			for _, ob := range r.EQLQuery.OrderBy {
-				other.OrderBy = append(other.OrderBy, struct {
-					Field     string `json:"field"`
-					Direction string `json:"direction"`
-					Algorithm string `json:"algorithm,omitempty"`
-				}{
-					Field:     ob.Field,
-					Direction: ob.Direction,
-					Algorithm: ob.Algorithm,
-				})
-			}
-		}
-
-		if r.EQLQuery.Delta != nil {
-			other.Delta = &struct {
-				Unit  string `json:"unit"`
-				Value int    `json:"value"`
-			}{
-				Unit:  r.EQLQuery.Delta.Unit,
-				Value: r.EQLQuery.Delta.Value,
-			}
-		}
-
-		output.Others = append(output.Others, other)
 	}
 
 	jsonData, err := json.MarshalIndent(output, "", "  ")

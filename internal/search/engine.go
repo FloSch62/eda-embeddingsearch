@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/eda-labs/eda-embeddingsearch/internal/constants"
 	"github.com/eda-labs/eda-embeddingsearch/internal/download"
 	"github.com/eda-labs/eda-embeddingsearch/internal/eql"
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
@@ -13,12 +14,24 @@ import (
 
 // Engine represents the search engine
 type Engine struct {
-	db *models.EmbeddingDB
+	db     *models.EmbeddingDB
+	config *ScoringConfig
 }
 
 // NewEngine creates a new search engine
 func NewEngine(db *models.EmbeddingDB) *Engine {
-	return &Engine{db: db}
+	return &Engine{
+		db:     db,
+		config: DefaultScoringConfig(),
+	}
+}
+
+// NewEngineWithConfig creates a new search engine with custom scoring configuration
+func NewEngineWithConfig(db *models.EmbeddingDB, config *ScoringConfig) *Engine {
+	return &Engine{
+		db:     db,
+		config: config,
+	}
 }
 
 // VectorSearch performs fast indexed search with pre-filtering
@@ -127,11 +140,11 @@ func (e *Engine) calculateCandidateScore(key string, matchCount int, query strin
 	entry := e.db.Table[key]
 
 	// Base score from inverted index matches
-	baseScore := float64(matchCount) * 10
+	baseScore := float64(matchCount) * constants.BaseIndexMatchScore
 
 	// Bonus for having all query words in the key
 	if hasAllWords(key, words) {
-		baseScore += float64(len(words)) * 20
+		baseScore += float64(len(words)) * constants.AllWordsMatchBonus
 	}
 
 	// Additional scoring
@@ -152,16 +165,16 @@ func hasAllWords(key string, words []string) bool {
 
 func getScoreThreshold(key string) float64 {
 	if strings.Contains(key, ".sros.") {
-		return 8.0 // Lower threshold for SROS
+		return constants.SROSScoreThreshold
 	}
-	return 10.0
+	return constants.DefaultScoreThreshold
 }
 
 func (e *Engine) generateVectorSearchResults(candidates []scoredCandidate, query string) []models.SearchResult {
-	results := make([]models.SearchResult, 0, 10)
+	results := make([]models.SearchResult, 0, constants.MaxSearchResults)
 
 	for i, cand := range candidates {
-		if i >= 10 {
+		if i >= constants.MaxSearchResults {
 			break
 		}
 
@@ -251,10 +264,10 @@ func calculateAlarmScore(words []string) float64 {
 	score := 0.0
 	for _, w := range words {
 		if w == "alarm" || w == "alarms" {
-			score += 10
+			score += constants.AlarmWordScore
 		}
 		if w == "critical" || w == "major" || w == "minor" {
-			score += 5
+			score += constants.AlarmSeverityScore
 		}
 	}
 	return score
@@ -266,13 +279,13 @@ type candidate struct {
 }
 
 func (e *Engine) findTopCandidates(query string, words, bigrams []string) []candidate {
-	const maxWorkers = 4
-	const chunkSize = 2000
-	const scoreThreshold = 5.0
-	const maxCandidates = 20
+	const maxWorkers = constants.MaxWorkers
+	const chunkSize = constants.ChunkSize
+	const scoreThreshold = constants.MinScoreThreshold
+	const maxCandidates = constants.MaxCandidates
 
 	keys := e.getAllKeys()
-	candidateChan := make(chan candidate, 50)
+	candidateChan := make(chan candidate, constants.CandidateChannelBuffer)
 
 	// Process chunks in parallel
 	e.processChunksParallel(keys, query, words, bigrams, candidateChan, maxWorkers, chunkSize, scoreThreshold)
@@ -360,7 +373,7 @@ func updateTopCandidates(candidates []candidate, newCand candidate, maxCandidate
 
 func (e *Engine) convertCandidatesToResults(candidates []candidate, query string, results []models.SearchResult) []models.SearchResult {
 	for _, cand := range candidates {
-		if len(results) >= 10 {
+		if len(results) >= constants.MaxSearchResults {
 			break
 		}
 

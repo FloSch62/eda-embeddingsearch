@@ -9,7 +9,138 @@ import (
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
 )
 
-func descriptionScore(queryLower string, entry models.EmbeddingEntry, words []string) float64 {
+// ScoringRule represents a parameterized scoring rule
+type ScoringRule struct {
+	Name      string
+	CheckFunc func(query, key, keyLower string) bool
+	ScoreFunc func(config *ScoringConfig) float64
+}
+
+// ConditionalScore applies a score if a condition is met
+func (e *Engine) conditionalScore(condition bool, score float64) float64 {
+	if condition {
+		return score
+	}
+	return 0
+}
+
+// ContainsAllScore returns a score if the text contains all specified substrings
+func (e *Engine) containsAllScore(text string, substrings []string, score float64) float64 {
+	for _, substr := range substrings {
+		if !strings.Contains(text, substr) {
+			return 0
+		}
+	}
+	return score
+}
+
+// ContainsAnyScore returns a score if the text contains any of the specified substrings
+func (e *Engine) containsAnyScore(text string, substrings []string, score float64) float64 {
+	for _, substr := range substrings {
+		if strings.Contains(text, substr) {
+			return score
+		}
+	}
+	return 0
+}
+
+// SuffixScore returns a score if the text ends with the specified suffix
+func (e *Engine) suffixScore(text, suffix string, score float64) float64 {
+	return e.conditionalScore(strings.HasSuffix(text, suffix), score)
+}
+
+// CountBasedScore returns a score based on the count of occurrences
+func (e *Engine) countBasedScore(count int, thresholds []struct {
+	Count int
+	Score float64
+}) float64 {
+	for i := len(thresholds) - 1; i >= 0; i-- {
+		if count >= thresholds[i].Count {
+			return thresholds[i].Score
+		}
+	}
+	return 0
+}
+
+// scoreEntryV2 is a consolidated version of scoreEntry using parameterized functions
+func (e *Engine) scoreEntryV2(key string, entry models.EmbeddingEntry, query string, words, bigrams []string) float64 {
+	keyTokens := Tokenize(key)
+	textTokens := Tokenize(entry.ReferenceText + " " + entry.Text)
+	queryLower := strings.ToLower(query)
+	keyLower := strings.ToLower(key)
+
+	score := 0.0
+
+	// Keyword scoring
+	score += e.keywordScoreV2(keyTokens, textTokens, words)
+
+	// Description scoring
+	score += e.descriptionScoreV2(queryLower, entry, words)
+
+	// Context-based scoring
+	score += e.contextScore(queryLower, key, keyLower, words)
+
+	// Field extraction scoring
+	extractedFields := eql.ExtractFields(query, key, &entry)
+	score += float64(len(extractedFields)) * e.config.FieldExtractScore
+
+	// Special query scoring
+	score += e.specialQueryScore(queryLower, key, extractedFields)
+
+	// Path depth scoring
+	score += e.pathDepthScore(keyTokens)
+
+	// Penalty scoring
+	score += e.penaltyScore(queryLower, key)
+
+	return score
+}
+
+// keywordScoreV2 consolidates keyword matching logic
+func (e *Engine) keywordScoreV2(keyTokens, textTokens, words []string) float64 {
+	score := 0.0
+	pathMatchCount := 0
+
+	// Last segment matching
+	if len(keyTokens) > 0 && len(words) > 0 {
+		lastSegment := keyTokens[len(keyTokens)-1]
+		for _, w := range words {
+			score += e.conditionalScore(lastSegment == w, e.config.LastSegmentMatch)
+		}
+	}
+
+	// Word matching with variable scores
+	wordScores := map[string]float64{
+		"interface":  e.config.KeywordMatchInterface,
+		"interfaces": e.config.KeywordMatchInterface,
+		"statistics": e.config.KeywordMatchStats,
+		"state":      e.config.KeywordMatchState,
+		"configure":  e.config.KeywordMatchState,
+	}
+
+	for _, w := range words {
+		if utils.Contains(keyTokens, w) {
+			pathMatchCount++
+			if scoreVal, ok := wordScores[w]; ok {
+				score += scoreVal
+			} else {
+				score += e.config.KeywordMatchDefault
+			}
+		} else if utils.Contains(textTokens, w) {
+			score += e.config.TextMatch
+		}
+	}
+
+	// All words match bonus
+	if pathMatchCount == len(words) && len(words) > 1 {
+		score += float64(len(words)) * e.config.AllWordsMatchBonus
+	}
+
+	return score
+}
+
+// descriptionScoreV2 consolidates description matching logic
+func (e *Engine) descriptionScoreV2(queryLower string, entry models.EmbeddingEntry, words []string) float64 {
 	var embeddingInfo struct {
 		Description string   `json:"Description"`
 		Fields      []string `json:"Fields"`
@@ -22,203 +153,231 @@ func descriptionScore(queryLower string, entry models.EmbeddingEntry, words []st
 	descLower := strings.ToLower(embeddingInfo.Description)
 	score := 0.0
 
+	// Count matching words
 	descMatchCount := 0
 	for _, w := range words {
 		if utils.Contains(descTokens, w) {
 			descMatchCount++
-			score += 3
+			score += e.config.DescriptionWordMatch
 		}
 	}
 
-	if strings.Contains(queryLower, "list of") && strings.Contains(descLower, "list of") {
-		score += 5
+	// Pattern matching
+	patterns := []struct {
+		QueryPattern string
+		DescPattern  string
+		Score        float64
+	}{
+		{"list of", "list of", e.config.DescriptionListMatch},
+		{"all", "all", e.config.DescriptionAllMatch},
+		{"show", "display", e.config.DescriptionShowMatch},
+		{"get", "retrieve", e.config.DescriptionGetMatch},
 	}
-	if strings.Contains(queryLower, "all") && strings.Contains(descLower, "all") {
-		score += 3
+
+	for _, p := range patterns {
+		score += e.containsAllScore(queryLower+" "+descLower, []string{p.QueryPattern, p.DescPattern}, p.Score)
 	}
-	if strings.Contains(queryLower, "show") && strings.Contains(descLower, "display") {
-		score += 2
-	}
-	if strings.Contains(queryLower, "get") && strings.Contains(descLower, "retrieve") {
-		score += 2
-	}
-	if descMatchCount >= 2 && descMatchCount >= len(words)/2 {
-		score += 5
-	}
+
+	// Multi-match bonus
+	score += e.conditionalScore(descMatchCount >= 2 && descMatchCount >= len(words)/2, e.config.DescriptionMultiMatch)
+
 	return score
 }
 
-func keywordScore(keyTokens, textTokens, words []string) (score float64, pathMatchCount int) {
-	score = 0.0
-	pathMatchCount = 0
-	if len(keyTokens) > 0 && len(words) > 0 {
-		lastSegment := keyTokens[len(keyTokens)-1]
-		for _, w := range words {
-			if lastSegment == w {
-				score += 10
-			}
-		}
+// contextScore handles various context-based scoring rules
+func (e *Engine) contextScore(queryLower, key, keyLower string, words []string) float64 {
+	score := 0.0
+
+	// Show + state bonus
+	score += e.containsAllScore(queryLower+" "+key, []string{"show", ".state."}, e.config.ShowStateBonus)
+
+	// Interface-related scoring
+	if strings.Contains(queryLower, "interface") {
+		score += e.interfaceScoreV2(key, keyLower, queryLower)
 	}
 
+	// BGP-related scoring
+	score += e.bgpContextScore(queryLower, key)
+
+	// Segment and suffix matching
+	score += e.segmentMatchScoreV2(keyLower, words)
+	score += e.suffixMatchScore(key, words)
+
+	// Bigram matching
+	score += e.bigramMatchScore(keyLower, words)
+
+	// Sequence matching
+	score += e.sequenceMatchScore(queryLower, key)
+
+	// Subinterface matching
+	score += e.subinterfaceMatchScore(queryLower, key)
+
+	return score
+}
+
+// bgpContextScore handles BGP-specific scoring
+func (e *Engine) bgpContextScore(queryLower, key string) float64 {
+	if !strings.Contains(queryLower, "bgp") || !strings.Contains(queryLower, "neighbor") {
+		return 0
+	}
+	score := e.containsAllScore(key, []string{"bgp", ".neighbor"}, e.config.BGPNeighborMatch)
+	score += e.conditionalScore(strings.Contains(key, "maintenance"), e.config.BGPMaintenancePenalty)
+	return score
+}
+
+// suffixMatchScore calculates score for suffix matches
+func (e *Engine) suffixMatchScore(key string, words []string) float64 {
+	score := 0.0
 	for _, w := range words {
-		if utils.Contains(keyTokens, w) {
-			pathMatchCount++
-			switch w {
-			case "interface", "interfaces":
-				score += 8
-			case "statistics":
-				score += 6
-			case "state", "configure":
-				score += 4
-			default:
-				score += 3
+		score += e.suffixScore(key, "."+w, e.config.ExactTableMatch)
+	}
+	return score
+}
+
+// bigramMatchScore calculates score for bigram matches
+func (e *Engine) bigramMatchScore(keyLower string, words []string) float64 {
+	score := 0.0
+	for _, w1 := range words {
+		for _, w2 := range words {
+			if w1 != w2 {
+				bigram := w1 + "." + w2
+				score += e.conditionalScore(strings.Contains(keyLower, bigram), e.config.BigramMatch)
 			}
-		} else if utils.Contains(textTokens, w) {
-			score += 1
 		}
 	}
-
-	return score, pathMatchCount
-}
-
-func interfaceScore(key, keyLower, queryLower string, words []string) float64 {
-	if !strings.Contains(queryLower, "interface") {
-		return 0.0
-	}
-
-	score := 0.0
-	score += interfaceSecurityScore(keyLower)
-	score += interfacePathScore(key, queryLower)
-	score += interfaceProtocolScore(keyLower, queryLower)
 	return score
 }
 
-func interfaceSecurityScore(keyLower string) float64 {
-	if strings.Contains(keyLower, "violator") || strings.Contains(keyLower, "security") {
-		return -20
+// sequenceMatchScore handles sequence-based scoring
+func (e *Engine) sequenceMatchScore(queryLower, key string) float64 {
+	if !strings.Contains(queryLower, "interface") || !strings.Contains(queryLower, "statistics") {
+		return 0
+	}
+	if strings.Contains(key, "interface.statistics") {
+		return e.config.SequenceMatch
+	}
+	if strings.Contains(key, "interface") && strings.Contains(key, "statistics") {
+		return e.config.SequencePartialMatch
 	}
 	return 0
 }
 
-func interfacePathScore(key, queryLower string) float64 {
+// subinterfaceMatchScore handles subinterface-specific scoring
+func (e *Engine) subinterfaceMatchScore(queryLower, key string) float64 {
+	if !strings.Contains(queryLower, "subinterface") || !strings.Contains(key, "subinterface") {
+		return 0
+	}
+	score := e.suffixScore(key, ".subinterface", e.config.SubinterfaceExactMatch)
+	if !strings.HasSuffix(key, ".subinterface") {
+		score += e.config.SubinterfacePartialMatch
+	}
+	return score
+}
+
+// interfaceScoreV2 consolidated interface scoring
+func (e *Engine) interfaceScoreV2(key, keyLower, queryLower string) float64 {
 	score := 0.0
 
+	// Security penalty
+	score += e.containsAnyScore(keyLower, []string{"violator", "security"}, e.config.InterfaceSecurityPenalty)
+
+	// Path scoring
 	if strings.HasSuffix(key, ".interface") && !strings.Contains(key, ".protocols.") {
-		score += 20
+		score += e.config.InterfaceEndMatch
 	}
-
 	if strings.Contains(queryLower, "statistics") && strings.HasSuffix(key, ".interface.statistics") {
-		score += 15
+		score += e.config.InterfaceStatsMatch
 	}
-
 	if strings.Contains(queryLower, "interfaces") && strings.HasSuffix(key, ".interface") {
-		score += 10
+		score += e.config.InterfacePluralMatch
+	}
+
+	// Protocol penalty
+	protocolsInQuery := e.containsAnyScore(queryLower, []string{"bgp", "ospf", "isis"}, 1.0) > 0
+	protocolsInKey := e.containsAnyScore(keyLower, []string{"protocols.bgp", "protocols.ospf", "protocols.isis"}, 1.0) > 0
+	if !protocolsInQuery && protocolsInKey {
+		score += e.config.InterfaceProtocolPenalty
 	}
 
 	return score
 }
 
-func interfaceProtocolScore(keyLower, queryLower string) float64 {
-	protocolsInQuery := strings.Contains(queryLower, "bgp") ||
-		strings.Contains(queryLower, "ospf") ||
-		strings.Contains(queryLower, "isis")
-
-	if !protocolsInQuery {
-		protocolsInKey := strings.Contains(keyLower, "protocols.bgp") ||
-			strings.Contains(keyLower, "protocols.ospf") ||
-			strings.Contains(keyLower, "protocols.isis")
-
-		if protocolsInKey {
-			return -15
-		}
-	}
-
-	return 0
-}
-
-func bgpScore(queryLower, key string) float64 {
-	score := 0.0
-	if strings.Contains(queryLower, "bgp") && strings.Contains(queryLower, "neighbor") {
-		if strings.Contains(key, "bgp") && strings.HasSuffix(key, ".neighbor") {
-			score += 15
-		}
-		if strings.Contains(key, "maintenance") {
-			score -= 10
-		}
-	}
-	return score
-}
-
-func segmentMatchScore(keyLower string, words []string) float64 {
+// segmentMatchScoreV2 consolidated segment matching
+func (e *Engine) segmentMatchScoreV2(keyLower string, words []string) float64 {
 	score := 0.0
 	for _, word := range words {
 		if idx := strings.Index(keyLower, word); idx != -1 {
 			afterMatch := keyLower[idx+len(word):]
 			dotCount := strings.Count(afterMatch, ".")
-			switch {
-			case dotCount == 0:
-				score += 10
-			case dotCount <= 2:
-				score += 6
-			case dotCount <= 4:
-				score += 2
+
+			thresholds := []struct {
+				Count int
+				Score float64
+			}{
+				{0, e.config.SegmentExactMatch},
+				{1, e.config.SegmentNearMatch},
+				{3, e.config.SegmentFarMatch},
+			}
+
+			score += e.countBasedScore(-dotCount, thresholds)
+		}
+	}
+	return score
+}
+
+// specialQueryScore handles special query patterns
+func (e *Engine) specialQueryScore(queryLower, key string, extractedFields []string) float64 {
+	score := 0.0
+
+	// Error query scoring
+	if strings.Contains(queryLower, "error") && strings.Contains(key, "statistics") {
+		for _, field := range extractedFields {
+			if strings.Contains(field, "error") {
+				score += e.config.ErrorFieldBonus
+				break
 			}
 		}
 	}
-	return score
-}
 
-func subinterfaceScore(query, key string) float64 {
-	if strings.Contains(query, "subinterface") && strings.Contains(key, "subinterface") {
-		if strings.HasSuffix(key, ".subinterface") {
-			return 10
-		}
-		return 2
-	}
-	return 0
-}
-
-func exactTableScore(key string, words []string) float64 {
-	score := 0.0
-	for _, w := range words {
-		if strings.HasSuffix(key, "."+w) {
-			score += 6
-		}
-	}
-	return score
-}
-
-func bigramScore(keyLower string, bigrams []string) float64 {
-	score := 0.0
-	for _, b := range bigrams {
-		if strings.Contains(keyLower, strings.ReplaceAll(b, " ", ".")) {
-			score += 2
-		}
-	}
-	return score
-}
-
-func extractFieldScore(query, key string, entry *models.EmbeddingEntry) (score float64, extractedFields []string) {
-	extractedFields = eql.ExtractFields(query, key, entry)
-	if len(extractedFields) == 0 {
-		return 0, nil
-	}
-	return float64(len(extractedFields)) * 1.5, extractedFields
-}
-
-func sequenceScore(query, key string) float64 {
-	if strings.Contains(query, "interface") && strings.Contains(query, "statistics") {
-		if strings.Contains(key, "interface") && strings.Contains(key, "statistics") {
-			if strings.Contains(key, "interface.statistics") {
-				return 8
+	// Bandwidth query scoring
+	if strings.Contains(queryLower, "bandwidth") && strings.Contains(key, "interface") {
+		for _, field := range extractedFields {
+			if strings.Contains(field, "octets") || strings.Contains(field, "bandwidth") {
+				score += e.config.BandwidthFieldBonus
+				break
 			}
-			return 4
 		}
 	}
-	return 0
+
+	return score
 }
 
-func pathDepthScore(keyTokens []string) float64 {
+// penaltyScore applies various penalties
+func (e *Engine) penaltyScore(queryLower, key string) float64 {
+	score := 0.0
+
+	// Protocol penalty
+	if strings.Contains(key, "protocols") &&
+		!strings.Contains(queryLower, "protocol") &&
+		e.containsAnyScore(queryLower, []string{"bgp", "ospf", "isis"}, 1.0) == 0 {
+		score += e.config.ProtocolPenalty
+	}
+
+	// Maintenance penalty
+	if strings.Contains(key, "maintenance") && !strings.Contains(queryLower, "maintenance") {
+		score += e.config.MaintenancePenalty
+	}
+
+	return score
+}
+
+// scoreEntry is the main entry point for scoring, wraps scoreEntryV2
+func (e *Engine) scoreEntry(key string, entry models.EmbeddingEntry, query string, words, bigrams []string) float64 {
+	return e.scoreEntryV2(key, entry, query, words, bigrams)
+}
+
+// pathDepthScore calculates score based on path depth
+func (e *Engine) pathDepthScore(keyTokens []string) float64 {
 	pathDepth := len(keyTokens)
 	if pathDepth == 0 {
 		return 0
@@ -233,91 +392,12 @@ func pathDepthScore(keyTokens []string) float64 {
 
 	switch {
 	case meaningfulDepth <= 2:
-		return 20
+		return e.config.PathDepthBonus2
 	case meaningfulDepth <= 3:
-		return 10
+		return e.config.PathDepthBonus3
 	case meaningfulDepth <= 4:
-		return 5
+		return e.config.PathDepthBonus4
 	default:
-		return -float64(meaningfulDepth-4) * 2
+		return -float64(meaningfulDepth-4) * e.config.PathDepthPenaltyFactor
 	}
-}
-
-func protocolPenalty(queryLower, key string) float64 {
-	if strings.Contains(key, "protocols") && !strings.Contains(queryLower, "protocol") &&
-		!strings.Contains(queryLower, "bgp") && !strings.Contains(queryLower, "ospf") &&
-		!strings.Contains(queryLower, "isis") {
-		return -10
-	}
-	return 0
-}
-
-func maintenancePenalty(queryLower, key string) float64 {
-	if strings.Contains(key, "maintenance") && !strings.Contains(queryLower, "maintenance") {
-		return -8
-	}
-	return 0
-}
-
-func errorQueryScore(queryLower, key string, extractedFields []string) float64 {
-	if !strings.Contains(queryLower, "error") {
-		return 0
-	}
-	if strings.Contains(key, "statistics") {
-		for _, field := range extractedFields {
-			if strings.Contains(field, "error") {
-				return 10
-			}
-		}
-	}
-	return 0
-}
-
-func bandwidthScore(queryLower, key string, extractedFields []string) float64 {
-	if strings.Contains(queryLower, "bandwidth") && strings.Contains(key, "interface") {
-		for _, field := range extractedFields {
-			if strings.Contains(field, "octets") || strings.Contains(field, "bandwidth") {
-				return 10
-			}
-		}
-	}
-	return 0
-}
-
-// scoreEntry calculates the score for a single embedding entry
-func (e *Engine) scoreEntry(key string, entry models.EmbeddingEntry, query string, words, bigrams []string) float64 {
-	keyTokens := Tokenize(key)
-	textTokens := Tokenize(entry.ReferenceText + " " + entry.Text)
-	queryLower := strings.ToLower(query)
-
-	score, pathMatch := keywordScore(keyTokens, textTokens, words)
-	score += descriptionScore(queryLower, entry, words)
-
-	if pathMatch == len(words) && len(words) > 1 {
-		score += float64(len(words)) * 3
-	}
-
-	if strings.Contains(queryLower, "show") && strings.Contains(key, ".state.") {
-		score += 5
-	}
-
-	keyLower := strings.ToLower(key)
-	score += interfaceScore(key, keyLower, queryLower, words)
-	score += bgpScore(queryLower, key)
-	score += segmentMatchScore(keyLower, words)
-	score += subinterfaceScore(query, key)
-	score += exactTableScore(key, words)
-	score += bigramScore(keyLower, bigrams)
-
-	fieldScore, extractedFields := extractFieldScore(query, key, &entry)
-	score += fieldScore
-
-	score += sequenceScore(query, key)
-	score += pathDepthScore(keyTokens)
-	score += protocolPenalty(queryLower, key)
-	score += maintenancePenalty(queryLower, key)
-	score += errorQueryScore(queryLower, key, extractedFields)
-	score += bandwidthScore(queryLower, key, extractedFields)
-
-	return score
 }

@@ -1,6 +1,10 @@
 package search
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/eda-labs/eda-embeddingsearch/internal/constants"
+)
 
 // Tokenize converts a string into lowercase tokens
 func Tokenize(s string) []string {
@@ -33,7 +37,7 @@ func Tokenize(s string) []string {
 	// Only filter stop words if we have enough meaningful words
 	meaningfulWords := 0
 	for _, token := range tokens {
-		if !stopWords[token] && len(token) > 1 {
+		if !stopWords[token] && len(token) >= constants.MinTokenLength {
 			meaningfulWords++
 		}
 	}

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
 )
@@ -38,19 +37,9 @@ func GetEmbeddingPaths() (srlPath, srosPath string) {
 }
 
 // DetectEmbeddingType determines which embedding set to use based on query content
+// Deprecated: Use DetectPlatformFromQuery instead
 func DetectEmbeddingType(query string) models.EmbeddingType {
-	queryLower := strings.ToLower(query)
-
-	// Check for SROS-specific keywords
-	srosKeywords := []string{"sros", "sr os", "service router", "7750", "7450", "7250", "7950"}
-	for _, keyword := range srosKeywords {
-		if strings.Contains(queryLower, keyword) {
-			return models.SROS
-		}
-	}
-
-	// Default to SRL
-	return models.SRL
+	return DetectPlatformFromQuery(query)
 }
 
 // DownloadEmbeddings downloads and extracts a specific embedding set
@@ -185,37 +174,9 @@ func verifyExtractedFile(embeddingsDir, expectedFile string) error {
 }
 
 // DownloadAndExtractEmbeddings downloads and extracts the embedding files if they don't exist
+// Deprecated: Use Manager.EnsureEmbeddings instead
 func DownloadAndExtractEmbeddings(query string, verbose bool) (string, error) {
-	embeddingsDir := GetEmbeddingsPath()
-	srlPath, srosPath := GetEmbeddingPaths()
-
-	// Create embeddings directory
-	if err := os.MkdirAll(embeddingsDir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create embeddings directory: %v", err)
-	}
-
-	// Determine which embedding type to use
-	embType := DetectEmbeddingType(query)
-
-	var targetPath string
-	switch embType {
-	case models.SRL:
-		targetPath = srlPath
-		// Check if SRL embeddings exist, download if not
-		if _, err := os.Stat(srlPath); err != nil {
-			if err := DownloadEmbeddings(models.SRL, embeddingsDir, verbose); err != nil {
-				return "", err
-			}
-		}
-	case models.SROS:
-		targetPath = srosPath
-		// Check if SROS embeddings exist, download if not
-		if _, err := os.Stat(srosPath); err != nil {
-			if err := DownloadEmbeddings(models.SROS, embeddingsDir, verbose); err != nil {
-				return "", err
-			}
-		}
-	}
-
-	return targetPath, nil
+	manager := NewManager()
+	platform := DetectPlatformFromQuery(query)
+	return manager.EnsureEmbeddings(platform, verbose)
 }
