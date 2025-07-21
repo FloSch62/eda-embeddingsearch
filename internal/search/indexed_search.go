@@ -92,6 +92,8 @@ func (e *Engine) generateIndexedSearchResults(candidates []scoredCandidate, quer
 		}
 
 		entry := e.db.Table[cand.key]
+		description, fields := parseEmbeddingInfo(entry.Text)
+
 		eqlQuery := models.EQLQuery{
 			Table:       cand.key,
 			Fields:      eql.ExtractFields(query, cand.key, &entry),
@@ -102,10 +104,12 @@ func (e *Engine) generateIndexedSearchResults(candidates []scoredCandidate, quer
 		}
 
 		results = append(results, models.SearchResult{
-			Key:         cand.key,
-			Score:       cand.score,
-			EQLQuery:    eqlQuery,
-			Explanation: e.generateExplanation(cand.key, query, cand.score),
+			Key:             cand.key,
+			Score:           cand.score,
+			EQLQuery:        eqlQuery,
+			Description:     description,
+			AvailableFields: fields,
+			Explanation:     e.generateExplanation(cand.key, query, cand.score),
 		})
 	}
 

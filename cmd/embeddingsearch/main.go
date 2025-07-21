@@ -126,34 +126,15 @@ func outputText(results []models.SearchResult, verbose bool) {
 	top := results[0]
 	fmt.Printf("Top match (score: %.2f):\n%s\n", top.Score, top.EQLQuery.String())
 
+	if top.Description != "" {
+		fmt.Printf("\nDescription: %s\n", top.Description)
+	}
+	if len(top.AvailableFields) > 0 {
+		fmt.Printf("Available fields: %s\n", strings.Join(top.AvailableFields, ", "))
+	}
+
 	if verbose {
-		fmt.Println("\nQuery components:")
-		fmt.Printf("  Table: %s\n", top.EQLQuery.Table)
-		if len(top.EQLQuery.Fields) > 0 {
-			fmt.Printf("  Fields: %s\n", strings.Join(top.EQLQuery.Fields, ", "))
-		}
-		if top.EQLQuery.WhereClause != "" {
-			fmt.Printf("  Where: %s\n", top.EQLQuery.WhereClause)
-		}
-		if len(top.EQLQuery.OrderBy) > 0 {
-			fmt.Print("  Order by: ")
-			for i, ob := range top.EQLQuery.OrderBy {
-				if i > 0 {
-					fmt.Print(", ")
-				}
-				fmt.Printf("%s %s", ob.Field, ob.Direction)
-				if ob.Algorithm != "" {
-					fmt.Printf(" %s", ob.Algorithm)
-				}
-			}
-			fmt.Println()
-		}
-		if top.EQLQuery.Limit > 0 {
-			fmt.Printf("  Limit: %d\n", top.EQLQuery.Limit)
-		}
-		if top.EQLQuery.Delta != nil {
-			fmt.Printf("  Delta: %s %d\n", top.EQLQuery.Delta.Unit, top.EQLQuery.Delta.Value)
-		}
+		printQueryComponents(&top)
 	}
 
 	// Show other matches (limit to 9 more for total of 10)
@@ -164,7 +145,44 @@ func outputText(results []models.SearchResult, verbose bool) {
 			maxOthers = len(results) - 1
 		}
 		for i := 1; i <= maxOthers; i++ {
-			fmt.Printf("%d. %s (score: %.2f)\n", i, results[i].EQLQuery.String(), results[i].Score)
+			other := results[i]
+			fmt.Printf("%d. %s (score: %.2f)\n", i, other.EQLQuery.String(), other.Score)
+			if other.Description != "" {
+				fmt.Printf("   Description: %s\n", other.Description)
+			}
+			if len(other.AvailableFields) > 0 {
+				fmt.Printf("   Available fields: %s\n", strings.Join(other.AvailableFields, ", "))
+			}
 		}
+	}
+}
+
+func printQueryComponents(result *models.SearchResult) {
+	fmt.Println("\nQuery components:")
+	fmt.Printf("  Table: %s\n", result.EQLQuery.Table)
+	if len(result.EQLQuery.Fields) > 0 {
+		fmt.Printf("  Fields: %s\n", strings.Join(result.EQLQuery.Fields, ", "))
+	}
+	if result.EQLQuery.WhereClause != "" {
+		fmt.Printf("  Where: %s\n", result.EQLQuery.WhereClause)
+	}
+	if len(result.EQLQuery.OrderBy) > 0 {
+		fmt.Print("  Order by: ")
+		for i, ob := range result.EQLQuery.OrderBy {
+			if i > 0 {
+				fmt.Print(", ")
+			}
+			fmt.Printf("%s %s", ob.Field, ob.Direction)
+			if ob.Algorithm != "" {
+				fmt.Printf(" %s", ob.Algorithm)
+			}
+		}
+		fmt.Println()
+	}
+	if result.EQLQuery.Limit > 0 {
+		fmt.Printf("  Limit: %d\n", result.EQLQuery.Limit)
+	}
+	if result.EQLQuery.Delta != nil {
+		fmt.Printf("  Delta: %s %d\n", result.EQLQuery.Delta.Unit, result.EQLQuery.Delta.Value)
 	}
 }
