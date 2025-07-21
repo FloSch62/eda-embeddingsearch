@@ -91,113 +91,150 @@ func ExtractFields(query, tablePath string, embeddingEntry *models.EmbeddingEntr
 func ExtractNodeName(query string) string {
 	words := strings.Fields(strings.ToLower(query))
 	for i, w := range words {
-		// Clean punctuation from word
-		w = strings.TrimSuffix(w, "?")
-		w = strings.TrimSuffix(w, "!")
-		w = strings.TrimSuffix(w, ".")
-		w = strings.TrimSuffix(w, ",")
+		w = cleanPunctuation(w)
 
 		// Skip generic references
-		if w == "nodes" || w == "node" || w == "my" {
+		if isGenericNodeReference(w) {
 			continue
 		}
 
 		// Check for specific node patterns
-		if (strings.HasPrefix(w, "leaf") || strings.HasPrefix(w, "spine")) && len(w) > 4 {
-			lastChar := w[len(w)-1]
-			if lastChar >= '0' && lastChar <= '9' {
-				return w
-			}
+		if nodeName := checkNodePattern(w); nodeName != "" {
+			return nodeName
 		}
 
 		// Check for "on <nodename>" or "for <nodename>" patterns
-		if (w == "on" || w == "for" || w == "from") && i+1 < len(words) {
-			next := strings.TrimSuffix(words[i+1], "?")
-			next = strings.TrimSuffix(next, "!")
-			next = strings.TrimSuffix(next, ".")
-			next = strings.TrimSuffix(next, ",")
-			// Skip common words and protocol names
-			skipWords := map[string]bool{
-				"nodes": true, "node": true, "my": true, "the": true,
-				"bgp": true, "ospf": true, "isis": true, "mpls": true,
-				"interface": true, "interfaces": true, "router": true,
-				"system": true, "all": true, "any": true,
-				"errors": true, "error": true, "drops": true, "drop": true,
-				"statistics": true, "stats": true, "status": true,
-				"configuration": true, "config": true, "state": true,
-				"up": true, "down": true, "active": true, "inactive": true,
-			}
-			if !skipWords[next] && len(next) > 1 {
-				return next
-			}
+		if nodeName := checkPrepositionPattern(w, i, words); nodeName != "" {
+			return nodeName
 		}
 	}
 	return ""
 }
 
+func cleanPunctuation(word string) string {
+	word = strings.TrimSuffix(word, "?")
+	word = strings.TrimSuffix(word, "!")
+	word = strings.TrimSuffix(word, ".")
+	return strings.TrimSuffix(word, ",")
+}
+
+func isGenericNodeReference(word string) bool {
+	return word == "nodes" || word == "node" || word == "my"
+}
+
+func checkNodePattern(word string) string {
+	if (strings.HasPrefix(word, "leaf") || strings.HasPrefix(word, "spine")) && len(word) > 4 {
+		lastChar := word[len(word)-1]
+		if lastChar >= '0' && lastChar <= '9' {
+			return word
+		}
+	}
+	return ""
+}
+
+func checkPrepositionPattern(word string, index int, words []string) string {
+	if (word == "on" || word == "for" || word == "from") && index+1 < len(words) {
+		next := cleanPunctuation(words[index+1])
+		if !isSkipWord(next) && len(next) > 1 {
+			return next
+		}
+	}
+	return ""
+}
+
+func isSkipWord(word string) bool {
+	skipWords := map[string]bool{
+		"nodes": true, "node": true, "my": true, "the": true,
+		"bgp": true, "ospf": true, "isis": true, "mpls": true,
+		"interface": true, "interfaces": true, "router": true,
+		"system": true, "all": true, "any": true,
+		"errors": true, "error": true, "drops": true, "drop": true,
+		"statistics": true, "stats": true, "status": true,
+		"configuration": true, "config": true, "state": true,
+		"up": true, "down": true, "active": true, "inactive": true,
+	}
+	return skipWords[word]
+}
+
 // ExtractConditions extracts conditions for WHERE clause
-func ExtractConditions(query string, tablePath string) map[string]string {
+func ExtractConditions(query, tablePath string) map[string]string {
 	conditions := make(map[string]string)
 	lower := strings.ToLower(query)
 
-	// State conditions for interfaces
-	if strings.Contains(tablePath, "interface") {
-		if strings.Contains(lower, "up") {
-			conditions["oper-state"] = "up"
-		} else if strings.Contains(lower, "down") {
-			conditions["oper-state"] = "down"
-		}
+	extractInterfaceConditions(lower, tablePath, conditions)
+	extractAlarmConditions(lower, tablePath, conditions)
+	extractProcessConditions(lower, tablePath, conditions)
+	extractNumericConditions(lower, conditions)
 
-		if strings.Contains(lower, "enabled") {
-			conditions["admin-state"] = "enable"
-		} else if strings.Contains(lower, "disabled") {
-			conditions["admin-state"] = "disable"
-		}
+	return conditions
+}
+
+func extractInterfaceConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "interface") {
+		return
 	}
 
-	// Alarm severity conditions
-	if strings.Contains(tablePath, "alarm") {
-		switch {
-		case strings.Contains(lower, "critical"):
-			conditions["severity"] = "critical"
-		case strings.Contains(lower, "major"):
-			conditions["severity"] = "major"
-		case strings.Contains(lower, "minor"):
-			conditions["severity"] = "minor"
-		}
-
-		if strings.Contains(lower, "unacknowledged") || strings.Contains(lower, "not acknowledged") {
-			conditions["acknowledged"] = "false"
-		}
+	if strings.Contains(lower, "up") {
+		conditions["oper-state"] = "up"
+	} else if strings.Contains(lower, "down") {
+		conditions["oper-state"] = "down"
 	}
 
-	// Process conditions
+	if strings.Contains(lower, "enabled") {
+		conditions["admin-state"] = "enable"
+	} else if strings.Contains(lower, "disabled") {
+		conditions["admin-state"] = "disable"
+	}
+}
+
+func extractAlarmConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "alarm") {
+		return
+	}
+
+	switch {
+	case strings.Contains(lower, "critical"):
+		conditions["severity"] = "critical"
+	case strings.Contains(lower, "major"):
+		conditions["severity"] = "major"
+	case strings.Contains(lower, "minor"):
+		conditions["severity"] = "minor"
+	}
+
+	if strings.Contains(lower, "unacknowledged") || strings.Contains(lower, "not acknowledged") {
+		conditions["acknowledged"] = "false"
+	}
+}
+
+func extractProcessConditions(lower, tablePath string, conditions map[string]string) {
 	if strings.Contains(tablePath, "process") && strings.Contains(lower, "high memory") {
 		conditions["memory-usage-threshold"] = "> 80"
 	}
+}
 
-	// Extract numeric comparisons (e.g., "mtu greater than 1500")
+func extractNumericConditions(lower string, conditions map[string]string) {
 	numericPattern := regexp.MustCompile(`(\w+)\s*(greater than|less than|equal to|!=|>=|<=|>|<|=)\s*(\d+)`)
 	matches := numericPattern.FindAllStringSubmatch(lower, -1)
+
 	for _, match := range matches {
 		field := match[1]
-		op := match[2]
+		op := normalizeOperator(match[2])
 		value := match[3]
-
-		// Convert operator
-		switch op {
-		case "greater than":
-			op = ">"
-		case "less than":
-			op = "<"
-		case "equal to":
-			op = "="
-		}
-
 		conditions[field] = op + " " + value
 	}
+}
 
-	return conditions
+func normalizeOperator(op string) string {
+	switch op {
+	case "greater than":
+		return ">"
+	case "less than":
+		return "<"
+	case "equal to":
+		return "="
+	default:
+		return op
+	}
 }
 
 // GenerateWhereClause generates WHERE clause
@@ -228,15 +265,31 @@ func GenerateWhereClause(tablePath, query string) string {
 }
 
 // ExtractOrderBy extracts ORDER BY clauses
-func ExtractOrderBy(query string, tablePath string, embeddingEntry *models.EmbeddingEntry) []models.OrderByClause {
-	var orderBy []models.OrderByClause
+func ExtractOrderBy(query, tablePath string, embeddingEntry *models.EmbeddingEntry) []models.OrderByClause {
 	lower := strings.ToLower(query)
-
-	// Get available fields from embedding
 	availableFields := ParseEmbeddingText(embeddingEntry.Text)
 
-	// Function to find the best matching field for sorting
-	findSortField := func(keywords []string) string {
+	fieldFinder := createFieldFinder(availableFields)
+
+	var orderBy []models.OrderByClause
+
+	// Check for descending sort patterns
+	orderBy = extractDescendingSort(lower, fieldFinder, orderBy)
+
+	// Check for ascending sort patterns
+	orderBy = extractAscendingSort(lower, fieldFinder, orderBy)
+
+	// Check for time-based sorting
+	orderBy = extractTimeSort(lower, tablePath, fieldFinder, orderBy)
+
+	// Default natural sorting
+	orderBy = extractDefaultSort(lower, fieldFinder, orderBy)
+
+	return orderBy
+}
+
+func createFieldFinder(availableFields []string) func([]string) string {
+	return func(keywords []string) string {
 		for _, keyword := range keywords {
 			for _, field := range availableFields {
 				if strings.Contains(strings.ToLower(field), keyword) {
@@ -246,57 +299,100 @@ func ExtractOrderBy(query string, tablePath string, embeddingEntry *models.Embed
 		}
 		return ""
 	}
+}
 
-	// Common sorting patterns
-	if strings.Contains(lower, "top") || strings.Contains(lower, "highest") || strings.Contains(lower, "most") {
-		switch {
-		case strings.Contains(lower, "memory"):
-			// Look for memory-related fields
-			sortField := findSortField([]string{"memory-usage", "memory-utilization", "utilization", "used"})
-			if sortField != "" {
-				orderBy = append(orderBy, models.OrderByClause{Field: sortField, Direction: "descending"})
-			}
-		case strings.Contains(lower, "cpu"):
-			// Look for CPU-related fields
-			sortField := findSortField([]string{"cpu-utilization", "cpu-usage", "cpu"})
-			if sortField != "" {
-				orderBy = append(orderBy, models.OrderByClause{Field: sortField, Direction: "descending"})
-			}
-		case strings.Contains(lower, "traffic"):
-			// Look for traffic-related fields
-			sortField := findSortField([]string{"in-octets", "out-octets", "octets"})
-			if sortField != "" {
-				orderBy = append(orderBy, models.OrderByClause{Field: sortField, Direction: "descending"})
-			}
-		}
+func extractDescendingSort(lower string, findSortField func([]string) string, orderBy []models.OrderByClause) []models.OrderByClause {
+	if !hasDescendingKeywords(lower) {
+		return orderBy
 	}
 
-	if strings.Contains(lower, "lowest") || strings.Contains(lower, "least") {
-		if strings.Contains(lower, "memory") {
-			sortField := findSortField([]string{"memory-usage", "memory-utilization", "utilization", "used"})
-			if sortField != "" {
-				orderBy = append(orderBy, models.OrderByClause{Field: sortField, Direction: "ascending"})
-			}
-		}
-	}
-
-	// Sort by time for alarms
-	if strings.Contains(tablePath, "alarm") && (strings.Contains(lower, "recent") || strings.Contains(lower, "latest")) {
-		sortField := findSortField([]string{"time-created", "last-change", "timestamp"})
-		if sortField != "" {
-			orderBy = append(orderBy, models.OrderByClause{Field: sortField, Direction: "descending"})
-		}
-	}
-
-	// Natural sorting for names
-	if len(orderBy) == 0 && strings.Contains(lower, "sort") {
-		sortField := findSortField([]string{"name"})
-		if sortField != "" {
-			orderBy = append(orderBy, models.OrderByClause{Field: sortField, Direction: "ascending", Algorithm: "natural"})
+	sortConfig := getDescendingSortConfig(lower)
+	if sortConfig.keywords != nil {
+		if sortField := findSortField(sortConfig.keywords); sortField != "" {
+			orderBy = append(orderBy, models.OrderByClause{
+				Field:     sortField,
+				Direction: "descending",
+			})
 		}
 	}
 
 	return orderBy
+}
+
+func extractAscendingSort(lower string, findSortField func([]string) string, orderBy []models.OrderByClause) []models.OrderByClause {
+	if !hasAscendingKeywords(lower) {
+		return orderBy
+	}
+
+	if strings.Contains(lower, "memory") {
+		if sortField := findSortField([]string{"memory-usage", "memory-utilization", "utilization", "used"}); sortField != "" {
+			orderBy = append(orderBy, models.OrderByClause{
+				Field:     sortField,
+				Direction: "ascending",
+			})
+		}
+	}
+
+	return orderBy
+}
+
+func extractTimeSort(lower, tablePath string, findSortField func([]string) string, orderBy []models.OrderByClause) []models.OrderByClause {
+	if !strings.Contains(tablePath, "alarm") {
+		return orderBy
+	}
+
+	if strings.Contains(lower, "recent") || strings.Contains(lower, "latest") {
+		if sortField := findSortField([]string{"time-created", "last-change", "timestamp"}); sortField != "" {
+			orderBy = append(orderBy, models.OrderByClause{
+				Field:     sortField,
+				Direction: "descending",
+			})
+		}
+	}
+
+	return orderBy
+}
+
+func extractDefaultSort(lower string, findSortField func([]string) string, orderBy []models.OrderByClause) []models.OrderByClause {
+	if len(orderBy) == 0 && strings.Contains(lower, "sort") {
+		if sortField := findSortField([]string{"name"}); sortField != "" {
+			orderBy = append(orderBy, models.OrderByClause{
+				Field:     sortField,
+				Direction: "ascending",
+				Algorithm: "natural",
+			})
+		}
+	}
+
+	return orderBy
+}
+
+func hasDescendingKeywords(lower string) bool {
+	return strings.Contains(lower, "top") ||
+		strings.Contains(lower, "highest") ||
+		strings.Contains(lower, "most")
+}
+
+func hasAscendingKeywords(lower string) bool {
+	return strings.Contains(lower, "lowest") ||
+		strings.Contains(lower, "least")
+}
+
+type sortConfig struct {
+	keywords []string
+}
+
+func getDescendingSortConfig(lower string) sortConfig {
+	switch {
+	case strings.Contains(lower, "memory"):
+		return sortConfig{keywords: []string{"memory-usage", "memory-utilization", "utilization", "used"}}
+	case strings.Contains(lower, "cpu"):
+		return sortConfig{keywords: []string{"cpu-utilization", "cpu-usage", "cpu"}}
+	case strings.Contains(lower, "traffic"):
+		return sortConfig{keywords: []string{"in-octets", "out-octets", "octets"}}
+	default:
+		return sortConfig{}
+	}
 }
 
 // ExtractLimit extracts LIMIT value

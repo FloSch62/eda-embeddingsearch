@@ -14,93 +14,133 @@ import (
 // LoadDB loads an embedding database from disk with caching
 func LoadDB(path string, verbose bool) (*models.EmbeddingDB, error) {
 	// Check memory cache first
-	if cached, exists := cache.GetFromMemory(path); exists {
-		if verbose {
-			fmt.Printf("Using in-memory cached embeddings\n")
-		}
-		return cached, nil
+	if db := loadFromMemoryCache(path, verbose); db != nil {
+		return db, nil
 	}
 
 	// Check binary cache
 	cachePath := cache.GetBinaryCachePath(path)
-	if cache.IsBinaryCacheValid(path, cachePath) {
-		if verbose {
-			fmt.Printf("Loading from binary cache...\n")
-		}
-		start := time.Now()
-
-		db, err := cache.LoadBinaryCache(cachePath)
-		if err == nil {
-			if verbose {
-				fmt.Printf("Loaded binary cache in %.2f seconds\n", time.Since(start).Seconds())
-			}
-
-			// Cache in memory
-			cache.StoreInMemory(path, db)
-			return db, nil
-		}
-		if verbose {
-			fmt.Printf("Binary cache failed, falling back to JSON: %v\n", err)
-		}
+	if db := loadFromBinaryCache(path, cachePath, verbose); db != nil {
+		return db, nil
 	}
 
 	// Load from JSON file
+	return loadFromJSON(path, cachePath, verbose)
+}
+
+func loadFromMemoryCache(path string, verbose bool) *models.EmbeddingDB {
+	if cached, exists := cache.GetFromMemory(path); exists {
+		if verbose {
+			fmt.Printf("Using in-memory cached embeddings\n")
+		}
+		return cached
+	}
+	return nil
+}
+
+func loadFromBinaryCache(path, cachePath string, verbose bool) *models.EmbeddingDB {
+	if !cache.IsBinaryCacheValid(path, cachePath) {
+		return nil
+	}
+
+	if verbose {
+		fmt.Printf("Loading from binary cache...\n")
+	}
+	start := time.Now()
+
+	db, err := cache.LoadBinaryCache(cachePath)
+	if err == nil {
+		if verbose {
+			fmt.Printf("Loaded binary cache in %.2f seconds\n", time.Since(start).Seconds())
+		}
+		cache.StoreInMemory(path, db)
+		return db
+	}
+
+	if verbose {
+		fmt.Printf("Binary cache failed, falling back to JSON: %v\n", err)
+	}
+	return nil
+}
+
+func loadFromJSON(path, cachePath string, verbose bool) (*models.EmbeddingDB, error) {
 	if verbose {
 		fmt.Printf("Loading embeddings from %s...\n", filepath.Base(path))
 	}
 	start := time.Now()
 
-	file, err := os.Open(path)
+	// Load JSON data
+	db, err := loadJSONFile(path)
 	if err != nil {
 		return nil, err
 	}
 
+	if verbose {
+		fmt.Printf("JSON loaded in %.2f seconds\n", time.Since(start).Seconds())
+	}
+
+	// Build index and save cache
+	postProcessDatabase(db, cachePath, verbose)
+
+	// Cache in memory
+	cache.StoreInMemory(path, db)
+
+	if verbose {
+		printLoadStats(db, start)
+	}
+
+	return db, nil
+}
+
+func loadJSONFile(path string) (*models.EmbeddingDB, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
 	var db models.EmbeddingDB
 	dec := json.NewDecoder(file)
 	if err := dec.Decode(&db); err != nil {
-		_ = file.Close()
 		return nil, err
 	}
-	if cerr := file.Close(); cerr != nil {
-		return nil, cerr
-	}
 
-	jsonLoadTime := time.Since(start).Seconds()
-	if verbose {
-		fmt.Printf("JSON loaded in %.2f seconds\n", jsonLoadTime)
-	}
+	return &db, nil
+}
 
+func postProcessDatabase(db *models.EmbeddingDB, cachePath string, verbose bool) {
 	// Build inverted index
 	if verbose {
 		fmt.Println("Building search index...")
 	}
 	indexStart := time.Now()
-	BuildInvertedIndex(&db)
+	BuildInvertedIndex(db)
 	if verbose {
 		fmt.Printf("Index built in %.2f seconds\n", time.Since(indexStart).Seconds())
 	}
 
-	// Save binary cache for next time
+	// Save binary cache
+	saveBinaryCache(db, cachePath, verbose)
+}
+
+func saveBinaryCache(db *models.EmbeddingDB, cachePath string, verbose bool) {
 	if verbose {
 		fmt.Println("Saving binary cache for faster future loads...")
 	}
 	cacheStart := time.Now()
-	if err := cache.SaveBinaryCache(&db, cachePath); err != nil {
+
+	if err := cache.SaveBinaryCache(db, cachePath); err != nil {
 		if verbose {
 			fmt.Printf("Warning: Failed to save binary cache: %v\n", err)
 		}
-	} else {
-		if verbose {
-			fmt.Printf("Binary cache saved in %.2f seconds\n", time.Since(cacheStart).Seconds())
-		}
+	} else if verbose {
+		fmt.Printf("Binary cache saved in %.2f seconds\n", time.Since(cacheStart).Seconds())
 	}
+}
 
-	// Cache in memory
-	cache.StoreInMemory(path, &db)
-
-	if verbose {
-		fmt.Printf("Total load time: %.2f seconds\n", time.Since(start).Seconds())
-		fmt.Printf("Loaded %d embeddings with %d indexed terms\n", len(db.Table), len(db.InvertedIndex))
-	}
-	return &db, nil
+func printLoadStats(db *models.EmbeddingDB, start time.Time) {
+	fmt.Printf("Total load time: %.2f seconds\n", time.Since(start).Seconds())
+	fmt.Printf("Loaded %d embeddings with %d indexed terms\n", len(db.Table), len(db.InvertedIndex))
 }

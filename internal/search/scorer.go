@@ -82,31 +82,58 @@ func keywordScore(keyTokens, textTokens, words []string) (score float64, pathMat
 }
 
 func interfaceScore(key, keyLower, queryLower string, words []string) float64 {
+	if !strings.Contains(queryLower, "interface") {
+		return 0.0
+	}
+
 	score := 0.0
-	if strings.Contains(queryLower, "interface") {
-		if strings.Contains(keyLower, "violator") || strings.Contains(keyLower, "security") {
-			score -= 20
-		}
+	score += interfaceSecurityScore(keyLower)
+	score += interfacePathScore(key, queryLower)
+	score += interfaceProtocolScore(keyLower, queryLower)
+	return score
+}
 
-		if strings.HasSuffix(key, ".interface") && !strings.Contains(key, ".protocols.") {
-			score += 20
-		}
+func interfaceSecurityScore(keyLower string) float64 {
+	if strings.Contains(keyLower, "violator") || strings.Contains(keyLower, "security") {
+		return -20
+	}
+	return 0
+}
 
-		if strings.Contains(queryLower, "statistics") && strings.HasSuffix(key, ".interface.statistics") {
-			score += 15
-		}
+func interfacePathScore(key, queryLower string) float64 {
+	score := 0.0
 
-		if !strings.Contains(queryLower, "bgp") && !strings.Contains(queryLower, "ospf") && !strings.Contains(queryLower, "isis") {
-			if strings.Contains(keyLower, "protocols.bgp") || strings.Contains(keyLower, "protocols.ospf") || strings.Contains(keyLower, "protocols.isis") {
-				score -= 15
-			}
-		}
+	if strings.HasSuffix(key, ".interface") && !strings.Contains(key, ".protocols.") {
+		score += 20
+	}
 
-		if strings.Contains(queryLower, "interfaces") && strings.HasSuffix(key, ".interface") {
-			score += 10
+	if strings.Contains(queryLower, "statistics") && strings.HasSuffix(key, ".interface.statistics") {
+		score += 15
+	}
+
+	if strings.Contains(queryLower, "interfaces") && strings.HasSuffix(key, ".interface") {
+		score += 10
+	}
+
+	return score
+}
+
+func interfaceProtocolScore(keyLower, queryLower string) float64 {
+	protocolsInQuery := strings.Contains(queryLower, "bgp") ||
+		strings.Contains(queryLower, "ospf") ||
+		strings.Contains(queryLower, "isis")
+
+	if !protocolsInQuery {
+		protocolsInKey := strings.Contains(keyLower, "protocols.bgp") ||
+			strings.Contains(keyLower, "protocols.ospf") ||
+			strings.Contains(keyLower, "protocols.isis")
+
+		if protocolsInKey {
+			return -15
 		}
 	}
-	return score
+
+	return 0
 }
 
 func bgpScore(queryLower, key string) float64 {

@@ -25,17 +25,43 @@ func NewEngine(db *models.EmbeddingDB) *Engine {
 func (e *Engine) VectorSearch(query string) []models.SearchResult {
 	words := ExpandSynonyms(Tokenize(query))
 
-	// Detect if this is an SROS database by checking a few entries
-	isSROSDB := false
-	for key := range e.db.Table {
-		if strings.Contains(key, ".sros.") {
-			isSROSDB = true
-			break
-		}
+	isSROSDB := e.detectSROSDatabase()
+	candidateKeys := e.getCandidateKeys(words, query, isSROSDB)
+
+	// If no candidates from index, fall back to full search
+	if len(candidateKeys) == 0 {
+		return e.Search(query)
 	}
 
-	// Use inverted index to get candidate keys
+	// Score candidates and generate results
+	candidates := e.scoreCandidates(candidateKeys, query, words)
+	return e.generateVectorSearchResults(candidates, query)
+}
+
+func (e *Engine) detectSROSDatabase() bool {
+	for key := range e.db.Table {
+		if strings.Contains(key, ".sros.") {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) getCandidateKeys(words []string, query string, isSROSDB bool) map[string]int {
 	candidateKeys := make(map[string]int)
+
+	// Use inverted index to get candidate keys
+	e.addIndexedCandidates(words, candidateKeys)
+
+	// For SROS database or queries, ensure we get interface-related entries
+	if shouldAddInterfaceCandidates(words, query, isSROSDB) {
+		e.addInterfaceCandidates(candidateKeys)
+	}
+
+	return candidateKeys
+}
+
+func (e *Engine) addIndexedCandidates(words []string, candidateKeys map[string]int) {
 	for _, word := range words {
 		if keys, exists := e.db.InvertedIndex[word]; exists {
 			for _, key := range keys {
@@ -43,87 +69,97 @@ func (e *Engine) VectorSearch(query string) []models.SearchResult {
 			}
 		}
 	}
+}
 
-	// For SROS database or queries, ensure we get interface-related entries
-	if isSROSDB || download.DetectEmbeddingType(query) == models.SROS {
-		// Add all entries containing "interface" if that's in the query
-		for _, word := range words {
-			if word == "interface" || word == "interfaces" {
-				// Also check for variations
-				for indexWord, keys := range e.db.InvertedIndex {
-					if strings.Contains(indexWord, "interface") {
-						for _, key := range keys {
-							candidateKeys[key]++
-						}
-					}
-				}
+func shouldAddInterfaceCandidates(words []string, query string, isSROSDB bool) bool {
+	if !isSROSDB && download.DetectEmbeddingType(query) != models.SROS {
+		return false
+	}
+
+	for _, word := range words {
+		if word == "interface" || word == "interfaces" {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) addInterfaceCandidates(candidateKeys map[string]int) {
+	for indexWord, keys := range e.db.InvertedIndex {
+		if strings.Contains(indexWord, "interface") {
+			for _, key := range keys {
+				candidateKeys[key]++
 			}
 		}
 	}
+}
 
-	// If no candidates from index, fall back to full search
-	if len(candidateKeys) == 0 {
-		return e.Search(query)
-	}
+type scoredCandidate struct {
+	key   string
+	score float64
+}
 
-	// Score only the candidates
-	results := make([]models.SearchResult, 0)
-	bigrams := make([]string, 0, len(words)-1)
-	for i := 0; i < len(words)-1; i++ {
-		bigrams = append(bigrams, words[i]+" "+words[i+1])
-	}
-
-	// Process candidates with scoring
-	type scoredCandidate struct {
-		key   string
-		score float64
-	}
-
+func (e *Engine) scoreCandidates(candidateKeys map[string]int, query string, words []string) []scoredCandidate {
+	bigrams := generateBigrams(words)
 	candidates := make([]scoredCandidate, 0, len(candidateKeys))
 
 	for key, matchCount := range candidateKeys {
-		entry := e.db.Table[key]
+		score := e.calculateCandidateScore(key, matchCount, query, words, bigrams)
+		threshold := getScoreThreshold(key)
 
-		// Base score from inverted index matches
-		baseScore := float64(matchCount) * 10
-
-		// Bonus for having all query words in the key
-		allWordsInKey := true
-		for _, word := range words {
-			if !strings.Contains(strings.ToLower(key), word) {
-				allWordsInKey = false
-				break
-			}
-		}
-		if allWordsInKey {
-			baseScore += float64(len(words)) * 20 // Big bonus for complete matches
-		}
-
-		// Additional scoring
-		additionalScore := e.scoreEntry(key, entry, query, words, bigrams)
-
-		totalScore := baseScore + additionalScore
-
-		// Adjust threshold based on platform
-		threshold := 10.0
-		if strings.Contains(key, ".sros.") {
-			threshold = 8.0 // Lower threshold for SROS to get better results
-		}
-
-		if totalScore > threshold {
+		if score > threshold {
 			candidates = append(candidates, scoredCandidate{
 				key:   key,
-				score: totalScore,
+				score: score,
 			})
 		}
 	}
 
-	// Sort candidates
+	// Sort candidates by score
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].score > candidates[j].score
 	})
 
-	// Generate EQL for top 10
+	return candidates
+}
+
+func (e *Engine) calculateCandidateScore(key string, matchCount int, query string, words, bigrams []string) float64 {
+	entry := e.db.Table[key]
+
+	// Base score from inverted index matches
+	baseScore := float64(matchCount) * 10
+
+	// Bonus for having all query words in the key
+	if hasAllWords(key, words) {
+		baseScore += float64(len(words)) * 20
+	}
+
+	// Additional scoring
+	additionalScore := e.scoreEntry(key, entry, query, words, bigrams)
+
+	return baseScore + additionalScore
+}
+
+func hasAllWords(key string, words []string) bool {
+	keyLower := strings.ToLower(key)
+	for _, word := range words {
+		if !strings.Contains(keyLower, word) {
+			return false
+		}
+	}
+	return true
+}
+
+func getScoreThreshold(key string) float64 {
+	if strings.Contains(key, ".sros.") {
+		return 8.0 // Lower threshold for SROS
+	}
+	return 10.0
+}
+
+func (e *Engine) generateVectorSearchResults(candidates []scoredCandidate, query string) []models.SearchResult {
+	results := make([]models.SearchResult, 0, 10)
+
 	for i, cand := range candidates {
 		if i >= 10 {
 			break
@@ -138,6 +174,7 @@ func (e *Engine) VectorSearch(query string) []models.SearchResult {
 			Limit:       eql.ExtractLimit(query),
 			Delta:       eql.ExtractDelta(query),
 		}
+
 		results = append(results, models.SearchResult{
 			Key:      cand.key,
 			Score:    cand.score,
@@ -151,174 +188,227 @@ func (e *Engine) VectorSearch(query string) []models.SearchResult {
 // Search performs a full search across all embeddings
 func (e *Engine) Search(query string) []models.SearchResult {
 	words := ExpandSynonyms(Tokenize(query))
-	bigrams := make([]string, 0, len(words)-1)
-	for i := 0; i < len(words)-1; i++ {
-		bigrams = append(bigrams, words[i]+" "+words[i+1])
-	}
+	bigrams := generateBigrams(words)
 
 	results := make([]models.SearchResult, 0)
 
-	// Check for alarm queries first (not in embeddings)
-	alarmScore := 0.0
-	for _, w := range words {
-		if w == "alarm" || w == "alarms" {
-			alarmScore += 10
-		}
-		if w == "critical" || w == "major" || w == "minor" {
-			alarmScore += 5
-		}
-	}
-	if alarmScore > 0 {
-		alarmPath := ".namespace.alarms.v1.alarm"
-		// Create a dummy embedding entry for alarms (not in actual embeddings)
-		alarmEntry := &models.EmbeddingEntry{
-			Text: `{"Description":"Active alarms in the system","Fields":["severity","text","time-created","acknowledged"]}`,
-		}
-		eqlQuery := models.EQLQuery{
-			Table:       alarmPath,
-			Fields:      eql.ExtractFields(query, alarmPath, alarmEntry),
-			WhereClause: eql.GenerateWhereClause(alarmPath, query),
-			OrderBy:     eql.ExtractOrderBy(query, alarmPath, alarmEntry),
-			Limit:       eql.ExtractLimit(query),
-			Delta:       eql.ExtractDelta(query),
-		}
-		results = append(results, models.SearchResult{
-			Key:             alarmPath,
-			Score:           alarmScore,
-			EQLQuery:        eqlQuery,
-			Description:     "Active alarms in the system",
-			AvailableFields: []string{"severity", "text", "time-created", "acknowledged"},
-		})
+	// Check for alarm queries first
+	if alarmResult := e.checkAlarmQuery(query, words); alarmResult != nil {
+		results = append(results, *alarmResult)
 	}
 
-	// Aggressive optimization for top-10 results only
-	const maxWorkers = 4
-	const chunkSize = 2000     // Larger chunks for better throughput
-	const scoreThreshold = 5.0 // Higher threshold for faster filtering
-	const maxCandidates = 20   // Only keep top 20 candidates during processing
+	// Find best candidates using parallel search
+	candidates := e.findTopCandidates(query, words, bigrams)
 
-	keys := make([]string, 0, len(e.db.Table))
-	for key := range e.db.Table {
-		keys = append(keys, key)
-	}
-
-	// Use a simpler structure for intermediate results - just score and key
-	type candidate struct {
-		key   string
-		score float64
-	}
-
-	candidateChan := make(chan candidate, 50)
-	var wg sync.WaitGroup
-
-	// Create a semaphore to limit concurrent workers
-	semaphore := make(chan struct{}, maxWorkers)
-
-	// Process in chunks with early termination
-	for i := 0; i < len(keys); i += chunkSize {
-		end := i + chunkSize
-		if end > len(keys) {
-			end = len(keys)
-		}
-
-		wg.Add(1)
-		// Acquire semaphore slot
-		semaphore <- struct{}{}
-
-		go func(start, end int) {
-			defer wg.Done()
-			defer func() { <-semaphore }() // Release semaphore slot
-
-			for j := start; j < end; j++ {
-				key := keys[j]
-				entry := e.db.Table[key]
-
-				score := e.scoreEntry(key, entry, query, words, bigrams)
-
-				// Only process high-scoring entries
-				if score > scoreThreshold {
-					candidateChan <- candidate{key: key, score: score}
-				}
-			}
-		}(i, end)
-	}
-
-	// Close channel when all workers are done
-	go func() {
-		wg.Wait()
-		close(candidateChan)
-	}()
-
-	// Collect only the best candidates - maintain sorted list of top candidates
-	candidates := make([]candidate, 0, maxCandidates)
-	minScore := scoreThreshold
-
-	for cand := range candidateChan {
-		if len(candidates) < maxCandidates {
-			candidates = append(candidates, cand)
-			if len(candidates) == maxCandidates {
-				// Sort and find minimum score
-				sort.Slice(candidates, func(i, j int) bool {
-					return candidates[i].score > candidates[j].score
-				})
-				minScore = candidates[maxCandidates-1].score
-			}
-		} else if cand.score > minScore {
-			// Replace worst candidate
-			candidates[maxCandidates-1] = cand
-			// Re-sort to maintain order
-			sort.Slice(candidates, func(i, j int) bool {
-				return candidates[i].score > candidates[j].score
-			})
-			minScore = candidates[maxCandidates-1].score
-		}
-	}
-
-	// Now generate EQL only for the top candidates
-	for _, cand := range candidates {
-		if len(results) >= 10 { // Only need 10 results maximum
-			break
-		}
-
-		entry := e.db.Table[cand.key]
-
-		// Parse description and fields from entry
-		var embeddingInfo struct {
-			Description string   `json:"Description"`
-			Fields      []string `json:"Fields"`
-		}
-		description := ""
-		availableFields := []string{}
-		if err := json.Unmarshal([]byte(entry.Text), &embeddingInfo); err == nil {
-			description = embeddingInfo.Description
-			availableFields = embeddingInfo.Fields
-		}
-
-		eqlQuery := models.EQLQuery{
-			Table:       cand.key,
-			Fields:      eql.ExtractFields(query, cand.key, &entry),
-			WhereClause: eql.GenerateWhereClause(cand.key, query),
-			OrderBy:     eql.ExtractOrderBy(query, cand.key, &entry),
-			Limit:       eql.ExtractLimit(query),
-			Delta:       eql.ExtractDelta(query),
-		}
-		results = append(results, models.SearchResult{
-			Key:             cand.key,
-			Score:           cand.score,
-			EQLQuery:        eqlQuery,
-			Description:     description,
-			AvailableFields: availableFields,
-		})
-	}
+	// Convert candidates to search results
+	results = e.convertCandidatesToResults(candidates, query, results)
 
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
 
-	// Limit to maximum 10 results for better performance
-	if len(results) > 10 {
-		results = results[:10]
+	return results
+}
+
+func generateBigrams(words []string) []string {
+	bigrams := make([]string, 0, len(words)-1)
+	for i := 0; i < len(words)-1; i++ {
+		bigrams = append(bigrams, words[i]+" "+words[i+1])
+	}
+	return bigrams
+}
+
+func (e *Engine) checkAlarmQuery(query string, words []string) *models.SearchResult {
+	alarmScore := calculateAlarmScore(words)
+	if alarmScore == 0 {
+		return nil
 	}
 
+	alarmPath := ".namespace.alarms.v1.alarm"
+	alarmEntry := &models.EmbeddingEntry{
+		Text: `{"Description":"Active alarms in the system","Fields":["severity","text","time-created","acknowledged"]}`,
+	}
+
+	eqlQuery := models.EQLQuery{
+		Table:       alarmPath,
+		Fields:      eql.ExtractFields(query, alarmPath, alarmEntry),
+		WhereClause: eql.GenerateWhereClause(alarmPath, query),
+		OrderBy:     eql.ExtractOrderBy(query, alarmPath, alarmEntry),
+		Limit:       eql.ExtractLimit(query),
+		Delta:       eql.ExtractDelta(query),
+	}
+
+	return &models.SearchResult{
+		Key:             alarmPath,
+		Score:           alarmScore,
+		EQLQuery:        eqlQuery,
+		Description:     "Active alarms in the system",
+		AvailableFields: []string{"severity", "text", "time-created", "acknowledged"},
+	}
+}
+
+func calculateAlarmScore(words []string) float64 {
+	score := 0.0
+	for _, w := range words {
+		if w == "alarm" || w == "alarms" {
+			score += 10
+		}
+		if w == "critical" || w == "major" || w == "minor" {
+			score += 5
+		}
+	}
+	return score
+}
+
+type candidate struct {
+	key   string
+	score float64
+}
+
+func (e *Engine) findTopCandidates(query string, words, bigrams []string) []candidate {
+	const maxWorkers = 4
+	const chunkSize = 2000
+	const scoreThreshold = 5.0
+	const maxCandidates = 20
+
+	keys := e.getAllKeys()
+	candidateChan := make(chan candidate, 50)
+
+	// Process chunks in parallel
+	e.processChunksParallel(keys, query, words, bigrams, candidateChan, maxWorkers, chunkSize, scoreThreshold)
+
+	// Collect top candidates
+	return collectTopCandidates(candidateChan, maxCandidates, scoreThreshold)
+}
+
+func (e *Engine) getAllKeys() []string {
+	keys := make([]string, 0, len(e.db.Table))
+	for key := range e.db.Table {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func (e *Engine) processChunksParallel(keys []string, query string, words, bigrams []string,
+	candidateChan chan<- candidate, maxWorkers, chunkSize int, scoreThreshold float64) {
+
+	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, maxWorkers)
+
+	for i := 0; i < len(keys); i += chunkSize {
+		end := minInt(i+chunkSize, len(keys))
+
+		wg.Add(1)
+		semaphore <- struct{}{}
+
+		go func(start, end int) {
+			defer wg.Done()
+			defer func() { <-semaphore }()
+
+			e.processChunk(keys[start:end], query, words, bigrams, candidateChan, scoreThreshold)
+		}(i, end)
+	}
+
+	go func() {
+		wg.Wait()
+		close(candidateChan)
+	}()
+}
+
+func (e *Engine) processChunk(keys []string, query string, words, bigrams []string,
+	candidateChan chan<- candidate, scoreThreshold float64) {
+
+	for _, key := range keys {
+		entry := e.db.Table[key]
+		score := e.scoreEntry(key, entry, query, words, bigrams)
+
+		if score > scoreThreshold {
+			candidateChan <- candidate{key: key, score: score}
+		}
+	}
+}
+
+func collectTopCandidates(candidateChan <-chan candidate, maxCandidates int, scoreThreshold float64) []candidate {
+	candidates := make([]candidate, 0, maxCandidates)
+	minScore := scoreThreshold
+
+	for cand := range candidateChan {
+		candidates = updateTopCandidates(candidates, cand, maxCandidates, &minScore)
+	}
+
+	return candidates
+}
+
+func updateTopCandidates(candidates []candidate, newCand candidate, maxCandidates int, minScore *float64) []candidate {
+	if len(candidates) < maxCandidates {
+		candidates = append(candidates, newCand)
+		if len(candidates) == maxCandidates {
+			sort.Slice(candidates, func(i, j int) bool {
+				return candidates[i].score > candidates[j].score
+			})
+			*minScore = candidates[maxCandidates-1].score
+		}
+	} else if newCand.score > *minScore {
+		candidates[maxCandidates-1] = newCand
+		sort.Slice(candidates, func(i, j int) bool {
+			return candidates[i].score > candidates[j].score
+		})
+		*minScore = candidates[maxCandidates-1].score
+	}
+	return candidates
+}
+
+func (e *Engine) convertCandidatesToResults(candidates []candidate, query string, results []models.SearchResult) []models.SearchResult {
+	for _, cand := range candidates {
+		if len(results) >= 10 {
+			break
+		}
+
+		result := e.createSearchResult(cand, query)
+		results = append(results, result)
+	}
 	return results
+}
+
+func (e *Engine) createSearchResult(cand candidate, query string) models.SearchResult {
+	entry := e.db.Table[cand.key]
+
+	description, availableFields := parseEmbeddingInfo(entry.Text)
+
+	eqlQuery := models.EQLQuery{
+		Table:       cand.key,
+		Fields:      eql.ExtractFields(query, cand.key, &entry),
+		WhereClause: eql.GenerateWhereClause(cand.key, query),
+		OrderBy:     eql.ExtractOrderBy(query, cand.key, &entry),
+		Limit:       eql.ExtractLimit(query),
+		Delta:       eql.ExtractDelta(query),
+	}
+
+	return models.SearchResult{
+		Key:             cand.key,
+		Score:           cand.score,
+		EQLQuery:        eqlQuery,
+		Description:     description,
+		AvailableFields: availableFields,
+	}
+}
+
+func parseEmbeddingInfo(text string) (description string, fields []string) {
+	var embeddingInfo struct {
+		Description string   `json:"Description"`
+		Fields      []string `json:"Fields"`
+	}
+
+	if err := json.Unmarshal([]byte(text), &embeddingInfo); err == nil {
+		return embeddingInfo.Description, embeddingInfo.Fields
+	}
+
+	return "", []string{}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -54,52 +54,74 @@ func DetectEmbeddingType(query string) models.EmbeddingType {
 }
 
 // DownloadEmbeddings downloads and extracts a specific embedding set
-func DownloadEmbeddings(embType models.EmbeddingType, embeddingsDir string, verbose bool) (err error) {
-	var url, expectedFile string
-
-	switch embType {
-	case models.SRL:
-		url = srlEmbeddingURL
-		expectedFile = srlEmbeddingFile
-		if verbose {
-			fmt.Println("Downloading SRL embeddings from GitHub...")
-		}
-	case models.SROS:
-		url = srosEmbeddingURL
-		expectedFile = srosEmbeddingFile
-		if verbose {
-			fmt.Println("Downloading SROS embeddings from GitHub...")
-		}
-	}
+func DownloadEmbeddings(embType models.EmbeddingType, embeddingsDir string, verbose bool) error {
+	url, expectedFile := getEmbeddingURLAndFile(embType, verbose)
 
 	// Download the tar.gz file
-	resp, err := http.Get(url)
+	resp, err := downloadFile(url)
 	if err != nil {
-		return fmt.Errorf("failed to download embeddings: %v", err)
+		return err
 	}
 	defer func() {
-		if cerr := resp.Body.Close(); err == nil {
-			err = cerr
-		}
+		_ = resp.Body.Close()
 	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download embeddings: HTTP %d", resp.StatusCode)
-	}
 
 	if verbose {
 		fmt.Println("Extracting embeddings...")
 	}
 
+	// Extract the tar.gz archive
+	if err := extractTarGz(resp.Body, embeddingsDir); err != nil {
+		return err
+	}
+
+	if verbose {
+		fmt.Println("Embeddings extracted successfully!")
+	}
+
+	// Verify the expected file exists
+	return verifyExtractedFile(embeddingsDir, expectedFile)
+}
+
+func getEmbeddingURLAndFile(embType models.EmbeddingType, verbose bool) (url, file string) {
+	switch embType {
+	case models.SRL:
+		if verbose {
+			fmt.Println("Downloading SRL embeddings from GitHub...")
+		}
+		return srlEmbeddingURL, srlEmbeddingFile
+	case models.SROS:
+		if verbose {
+			fmt.Println("Downloading SROS embeddings from GitHub...")
+		}
+		return srosEmbeddingURL, srosEmbeddingFile
+	default:
+		return "", ""
+	}
+}
+
+func downloadFile(url string) (*http.Response, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download embeddings: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("failed to download embeddings: HTTP %d", resp.StatusCode)
+	}
+
+	return resp, nil
+}
+
+func extractTarGz(reader io.Reader, destDir string) error {
 	// Create gzip reader
-	gzipReader, err := gzip.NewReader(resp.Body)
+	gzipReader, err := gzip.NewReader(reader)
 	if err != nil {
 		return fmt.Errorf("failed to create gzip reader: %v", err)
 	}
 	defer func() {
-		if cerr := gzipReader.Close(); err == nil {
-			err = cerr
-		}
+		_ = gzipReader.Close()
 	}()
 
 	// Create tar reader
@@ -115,45 +137,51 @@ func DownloadEmbeddings(embType models.EmbeddingType, embeddingsDir string, verb
 			return fmt.Errorf("failed to read tar entry: %v", err)
 		}
 
-		// Skip directories
-		if header.Typeflag == tar.TypeDir {
-			continue
+		if err := extractTarEntry(tarReader, header, destDir); err != nil {
+			return err
 		}
+	}
 
-		// Create the file path
-		filePath := filepath.Join(embeddingsDir, header.Name)
+	return nil
+}
 
-		// Create directory if needed
-		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
-			return fmt.Errorf("failed to create directory: %v", err)
-		}
+func extractTarEntry(tarReader *tar.Reader, header *tar.Header, destDir string) error {
+	// Skip directories
+	if header.Typeflag == tar.TypeDir {
+		return nil
+	}
 
-		// Create the file
-		var file *os.File
-		file, err = os.Create(filePath)
-		if err != nil {
-			return fmt.Errorf("failed to create file %s: %v", filePath, err)
-		}
+	// Create the file path
+	filePath := filepath.Join(destDir, header.Name)
 
-		// Copy file contents
-		if _, err := io.Copy(file, tarReader); err != nil {
-			_ = file.Close()
-			return fmt.Errorf("failed to write file %s: %v", filePath, err)
-		}
+	// Create directory if needed
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		return fmt.Errorf("failed to create directory: %v", err)
+	}
+
+	// Create and write the file
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %v", filePath, err)
+	}
+	defer func() {
 		_ = file.Close()
+	}()
+
+	// Copy file contents
+	if _, err := io.Copy(file, tarReader); err != nil {
+		return fmt.Errorf("failed to write file %s: %v", filePath, err)
 	}
 
-	if verbose {
-		fmt.Println("Embeddings extracted successfully!")
-	}
+	return nil
+}
 
-	// Verify the expected file exists
+func verifyExtractedFile(embeddingsDir, expectedFile string) error {
 	expectedPath := filepath.Join(embeddingsDir, expectedFile)
 	if _, err := os.Stat(expectedPath); err != nil {
 		return fmt.Errorf("expected embedding file not found after extraction: %s", expectedPath)
 	}
-
-	return err
+	return nil
 }
 
 // DownloadAndExtractEmbeddings downloads and extracts the embedding files if they don't exist
