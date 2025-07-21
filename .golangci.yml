@@ -1,5 +1,6 @@
 # golangci-lint configuration
 # https://golangci-lint.run/usage/configuration/
+version: 2
 
 run:
   timeout: 5m
@@ -19,7 +20,6 @@ issues:
 
 linters:
   enable:
-    - gofmt
     - govet
     - errcheck
     - staticcheck
@@ -28,6 +28,9 @@ linters:
     - unconvert
     - gocritic
     - gocyclo
+formatters:
+  enable:
+    - gofmt
     - goimports
 
 linters-settings:

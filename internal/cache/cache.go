@@ -43,10 +43,16 @@ func SaveBinaryCache(db *models.EmbeddingDB, cachePath string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
 	enc := gob.NewEncoder(file)
-	return enc.Encode(db)
+	if err = enc.Encode(db); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if cerr := file.Close(); cerr != nil {
+		return cerr
+	}
+	return nil
 }
 
 // LoadBinaryCache loads the database from a binary cache file
@@ -55,12 +61,15 @@ func LoadBinaryCache(cachePath string) (*models.EmbeddingDB, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 
 	var db models.EmbeddingDB
 	dec := gob.NewDecoder(file)
-	if err := dec.Decode(&db); err != nil {
+	if err = dec.Decode(&db); err != nil {
+		_ = file.Close()
 		return nil, err
+	}
+	if cerr := file.Close(); cerr != nil {
+		return nil, cerr
 	}
 
 	return &db, nil

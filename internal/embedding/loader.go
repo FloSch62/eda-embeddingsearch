@@ -54,12 +54,15 @@ func LoadDB(path string, verbose bool) (*models.EmbeddingDB, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 
 	var db models.EmbeddingDB
 	dec := json.NewDecoder(file)
 	if err := dec.Decode(&db); err != nil {
+		_ = file.Close()
 		return nil, err
+	}
+	if cerr := file.Close(); cerr != nil {
+		return nil, cerr
 	}
 
 	jsonLoadTime := time.Since(start).Seconds()

@@ -7,7 +7,7 @@ import (
 
 // BuildInvertedIndex creates an inverted index for fast word-based lookups
 func BuildInvertedIndex(db *models.EmbeddingDB) {
-	if db.InvertedIndex != nil && len(db.InvertedIndex) > 0 {
+	if len(db.InvertedIndex) > 0 {
 		// Already built
 		return
 	}

@@ -224,7 +224,7 @@ func (e *Engine) Search(query string) []models.SearchResult {
 		wg.Add(1)
 		// Acquire semaphore slot
 		semaphore <- struct{}{}
-		
+
 		go func(start, end int) {
 			defer wg.Done()
 			defer func() { <-semaphore }() // Release semaphore slot

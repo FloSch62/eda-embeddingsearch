@@ -157,11 +157,12 @@ func ExtractConditions(query string, tablePath string) map[string]string {
 
 	// Alarm severity conditions
 	if strings.Contains(tablePath, "alarm") {
-		if strings.Contains(lower, "critical") {
+		switch {
+		case strings.Contains(lower, "critical"):
 			conditions["severity"] = "critical"
-		} else if strings.Contains(lower, "major") {
+		case strings.Contains(lower, "major"):
 			conditions["severity"] = "major"
-		} else if strings.Contains(lower, "minor") {
+		case strings.Contains(lower, "minor"):
 			conditions["severity"] = "minor"
 		}
 
@@ -248,19 +249,20 @@ func ExtractOrderBy(query string, tablePath string, embeddingEntry *models.Embed
 
 	// Common sorting patterns
 	if strings.Contains(lower, "top") || strings.Contains(lower, "highest") || strings.Contains(lower, "most") {
-		if strings.Contains(lower, "memory") {
+		switch {
+		case strings.Contains(lower, "memory"):
 			// Look for memory-related fields
 			sortField := findSortField([]string{"memory-usage", "memory-utilization", "utilization", "used"})
 			if sortField != "" {
 				orderBy = append(orderBy, models.OrderByClause{Field: sortField, Direction: "descending"})
 			}
-		} else if strings.Contains(lower, "cpu") {
+		case strings.Contains(lower, "cpu"):
 			// Look for CPU-related fields
 			sortField := findSortField([]string{"cpu-utilization", "cpu-usage", "cpu"})
 			if sortField != "" {
 				orderBy = append(orderBy, models.OrderByClause{Field: sortField, Direction: "descending"})
 			}
-		} else if strings.Contains(lower, "traffic") {
+		case strings.Contains(lower, "traffic"):
 			// Look for traffic-related fields
 			sortField := findSortField([]string{"in-octets", "out-octets", "octets"})
 			if sortField != "" {

@@ -54,6 +54,7 @@ func Tokenize(s string) []string {
 
 // ExpandSynonyms expands words with their synonyms
 func ExpandSynonyms(words []string) []string {
+	//nolint:misspell // intentionally include common misspellings for expansion
 	synonyms := map[string]string{
 		"stats":         "statistics",
 		"stat":          "statistics",

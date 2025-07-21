@@ -1,5 +1,7 @@
 package test
 
+//nolint:misspell // test inputs intentionally contain misspellings
+
 import (
 	"reflect"
 	"testing"
@@ -68,7 +70,8 @@ func TestExpandSynonyms(t *testing.T) {
 			expected: []string{"statistics", "interface", "temperature"},
 		},
 		{
-			name:     "typo corrections",
+			name: "typo corrections",
+			//nolint:misspell
 			input:    []string{"interfce", "neighors", "bandwith"},
 			expected: []string{"interface", "neighbor", "bandwidth"},
 		},

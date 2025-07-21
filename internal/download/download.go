@@ -54,7 +54,7 @@ func DetectEmbeddingType(query string) models.EmbeddingType {
 }
 
 // DownloadEmbeddings downloads and extracts a specific embedding set
-func DownloadEmbeddings(embType models.EmbeddingType, embeddingsDir string, verbose bool) error {
+func DownloadEmbeddings(embType models.EmbeddingType, embeddingsDir string, verbose bool) (err error) {
 	var url, expectedFile string
 
 	switch embType {
@@ -77,7 +77,11 @@ func DownloadEmbeddings(embType models.EmbeddingType, embeddingsDir string, verb
 	if err != nil {
 		return fmt.Errorf("failed to download embeddings: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if cerr := resp.Body.Close(); err == nil {
+			err = cerr
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to download embeddings: HTTP %d", resp.StatusCode)
@@ -92,7 +96,11 @@ func DownloadEmbeddings(embType models.EmbeddingType, embeddingsDir string, verb
 	if err != nil {
 		return fmt.Errorf("failed to create gzip reader: %v", err)
 	}
-	defer gzipReader.Close()
+	defer func() {
+		if cerr := gzipReader.Close(); err == nil {
+			err = cerr
+		}
+	}()
 
 	// Create tar reader
 	tarReader := tar.NewReader(gzipReader)
@@ -121,17 +129,18 @@ func DownloadEmbeddings(embType models.EmbeddingType, embeddingsDir string, verb
 		}
 
 		// Create the file
-		file, err := os.Create(filePath)
+		var file *os.File
+		file, err = os.Create(filePath)
 		if err != nil {
 			return fmt.Errorf("failed to create file %s: %v", filePath, err)
 		}
 
 		// Copy file contents
 		if _, err := io.Copy(file, tarReader); err != nil {
-			file.Close()
+			_ = file.Close()
 			return fmt.Errorf("failed to write file %s: %v", filePath, err)
 		}
-		file.Close()
+		_ = file.Close()
 	}
 
 	if verbose {
@@ -144,7 +153,7 @@ func DownloadEmbeddings(embType models.EmbeddingType, embeddingsDir string, verb
 		return fmt.Errorf("expected embedding file not found after extraction: %s", expectedPath)
 	}
 
-	return nil
+	return err
 }
 
 // DownloadAndExtractEmbeddings downloads and extracts the embedding files if they don't exist
