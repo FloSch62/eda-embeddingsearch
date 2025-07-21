@@ -4,79 +4,42 @@ on:
   release:
     types: [created]
 
+permissions:
+  contents: write
+
 jobs:
   release-binaries:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: 'stable'
-    
-    - name: Build all platforms
-      run: make build
-    
-    - name: Package binaries
-      run: |
-        # Create archives for each platform
-        cd bin/linux && tar -czf ../../embeddingsearch-linux-amd64.tar.gz embeddingsearch && cd ../..
-        cd bin/darwin && tar -czf ../../embeddingsearch-darwin-amd64.tar.gz embeddingsearch && cd ../..
-        cd bin/darwin && tar -czf ../../embeddingsearch-darwin-arm64.tar.gz embeddingsearch-arm64 && cd ../..
-        cd bin/win32 && zip ../../embeddingsearch-windows-amd64.zip embeddingsearch.exe && cd ../..
-    
-    - name: Upload Linux Binary
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./embeddingsearch-linux-amd64.tar.gz
-        asset_name: embeddingsearch-linux-amd64.tar.gz
-        asset_content_type: application/gzip
-    
-    - name: Upload macOS Intel Binary
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./embeddingsearch-darwin-amd64.tar.gz
-        asset_name: embeddingsearch-darwin-amd64.tar.gz
-        asset_content_type: application/gzip
-    
-    - name: Upload macOS ARM Binary
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./embeddingsearch-darwin-arm64.tar.gz
-        asset_name: embeddingsearch-darwin-arm64.tar.gz
-        asset_content_type: application/gzip
-    
-    - name: Upload Windows Binary
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./embeddingsearch-windows-amd64.zip
-        asset_name: embeddingsearch-windows-amd64.zip
-        asset_content_type: application/zip
-    
-    - name: Generate SHA256 checksums
-      run: |
-        sha256sum embeddingsearch-*.tar.gz embeddingsearch-*.zip > checksums.txt
-    
-    - name: Upload checksums
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./checksums.txt
-        asset_name: checksums.txt
-        asset_content_type: text/plain
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Build all platforms
+        run: make build
+
+      - name: Package binaries
+        run: |
+          # Create archives for each platform
+          cd bin/linux   && tar -czf ../../embeddingsearch-linux-amd64.tar.gz embeddingsearch && cd ../..
+          cd bin/darwin  && tar -czf ../../embeddingsearch-darwin-amd64.tar.gz embeddingsearch  && cd ../..
+          cd bin/darwin  && tar -czf ../../embeddingsearch-darwin-arm64.tar.gz embeddingsearch-arm64 && cd ../..
+          cd bin/win32   && zip   ../../embeddingsearch-windows-amd64.zip embeddingsearch.exe && cd ../..
+
+      - name: Generate SHA256 checksums
+        run: |
+          sha256sum embeddingsearch-*.tar.gz embeddingsearch-*.zip > checksums.txt
+
+      - name: Upload assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            embeddingsearch-linux-amd64.tar.gz
+            embeddingsearch-darwin-amd64.tar.gz
+            embeddingsearch-darwin-arm64.tar.gz
+            embeddingsearch-windows-amd64.zip
+            checksums.txt
