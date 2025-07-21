@@ -9,8 +9,9 @@ import (
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
 )
 
-// VectorSearch performs fast indexed search with pre-filtering
-func (e *Engine) VectorSearch(query string) []models.SearchResult {
+// IndexedSearch performs fast search using the prebuilt inverted index
+// and falls back to the full search if no candidates are found.
+func (e *Engine) IndexedSearch(query string) []models.SearchResult {
 	words := ExpandSynonyms(Tokenize(query))
 
 	isSROSDB := e.detectSROSDatabase()
@@ -23,7 +24,7 @@ func (e *Engine) VectorSearch(query string) []models.SearchResult {
 
 	// Score candidates and generate results
 	candidates := e.scoreCandidates(candidateKeys, query, words)
-	return e.generateVectorSearchResults(candidates, query)
+	return e.generateIndexedSearchResults(candidates, query)
 }
 
 func (e *Engine) detectSROSDatabase() bool {
@@ -82,7 +83,7 @@ func (e *Engine) addInterfaceCandidates(candidateKeys map[string]int) {
 	}
 }
 
-func (e *Engine) generateVectorSearchResults(candidates []scoredCandidate, query string) []models.SearchResult {
+func (e *Engine) generateIndexedSearchResults(candidates []scoredCandidate, query string) []models.SearchResult {
 	results := make([]models.SearchResult, 0, constants.MaxSearchResults)
 
 	for i, cand := range candidates {

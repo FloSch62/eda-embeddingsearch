@@ -75,7 +75,7 @@ func main() {
 
 	// Create search engine and perform search
 	engine := search.NewEngine(db)
-	results := engine.VectorSearch(query)
+	results := engine.IndexedSearch(query)
 
 	if len(results) == 0 {
 		if *jsonOutput {
