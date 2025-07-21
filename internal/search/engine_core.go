@@ -17,11 +17,3 @@ func NewEngine(db *models.EmbeddingDB) *Engine {
 		config: DefaultScoringConfig(),
 	}
 }
-
-// NewEngineWithConfig creates a new search engine with custom scoring configuration
-func NewEngineWithConfig(db *models.EmbeddingDB, config *ScoringConfig) *Engine {
-	return &Engine{
-		db:     db,
-		config: config,
-	}
-}

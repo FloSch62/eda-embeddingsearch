@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/eda-labs/eda-embeddingsearch/internal/cache"
 	"github.com/eda-labs/eda-embeddingsearch/internal/download"
 	"github.com/eda-labs/eda-embeddingsearch/internal/embedding"
 	"github.com/eda-labs/eda-embeddingsearch/internal/search"
@@ -65,7 +66,8 @@ func main() {
 		}
 	}
 
-	db, err := embedding.LoadDB(finalDBPath, !*jsonOutput)
+	loader := embedding.NewLoader(cache.NewCacheManager())
+	db, err := loader.Load(finalDBPath, !*jsonOutput)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load db: %v\n", err)
 		os.Exit(1)

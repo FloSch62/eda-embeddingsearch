@@ -156,10 +156,3 @@ func (l *Loader) printLoadStats(db *models.EmbeddingDB, start time.Time) {
 	fmt.Printf("Total load time: %.2f seconds\n", time.Since(start).Seconds())
 	fmt.Printf("Loaded %d embeddings with %d indexed terms\n", len(db.Table), len(db.InvertedIndex))
 }
-
-// LoadDB loads an embedding database from disk with caching
-// Deprecated: Use NewLoader with dependency injection instead
-func LoadDB(path string, verbose bool) (*models.EmbeddingDB, error) {
-	loader := NewLoader(cache.NewCacheManager())
-	return loader.Load(path, verbose)
-}
