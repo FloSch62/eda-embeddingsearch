@@ -14,11 +14,8 @@ const (
 	AlarmSeverityScore = 5.0
 
 	// Search limits
-	MaxSearchResults       = 10
-	MaxCandidates          = 20
-	MaxWorkers             = 4
-	ChunkSize              = 2000
-	CandidateChannelBuffer = 50
+	MaxSearchResults = 10
+	MaxCandidates    = 20
 
 	// EQL constants
 	DefaultHighMemoryThreshold = 80
@@ -27,7 +24,6 @@ const (
 	RealTimeIntervalSeconds    = 1
 
 	// Tokenizer constants
-	MaxTokenLength = 50
 	MinTokenLength = 2
 
 	// File permissions

@@ -56,9 +56,9 @@ func main() {
 		finalDBPath = *dbPath
 	} else {
 		// Auto-download embeddings if not specified
-		downloadManager := download.NewManager()
+		downloader := download.NewDownloader()
 		var err error
-		finalDBPath, err = downloadManager.EnsureEmbeddings(platform, !*jsonOutput)
+		finalDBPath, err = downloader.EnsureEmbeddings(platform, !*jsonOutput)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to download embeddings: %v\n", err)
 			os.Exit(1)

@@ -8,9 +8,18 @@ import (
 	"strings"
 
 	"github.com/eda-labs/eda-embeddingsearch/internal/constants"
-	"github.com/eda-labs/eda-embeddingsearch/internal/utils"
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
 )
+
+// contains checks if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
 
 // ParseEmbeddingText parses the Text field to get available fields
 func ParseEmbeddingText(text string) []string {
@@ -56,7 +65,7 @@ func ExtractFields(query, tablePath string, embeddingEntry *models.EmbeddingEntr
 		for _, keyword := range keywords {
 			for _, available := range availableFields {
 				if strings.Contains(strings.ToLower(available), keyword) {
-					if !utils.Contains(matches, available) {
+					if !contains(matches, available) {
 						matches = append(matches, available)
 					}
 				}
@@ -70,7 +79,7 @@ func ExtractFields(query, tablePath string, embeddingEntry *models.EmbeddingEntr
 		if strings.Contains(lower, keyword) {
 			matches := findMatchingFields(possibleFields)
 			for _, match := range matches {
-				if !utils.Contains(fields, match) {
+				if !contains(fields, match) {
 					fields = append(fields, match)
 				}
 			}

@@ -14,8 +14,8 @@ import (
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
 )
 
-// Manager handles downloading and managing embeddings
-type Manager struct {
+// Downloader handles downloading and managing embeddings
+type Downloader struct {
 	embedDir     string
 	srlURL       string
 	srosURL      string
@@ -23,38 +23,38 @@ type Manager struct {
 	srosFileName string
 }
 
-// NewManager creates a new download manager
-func NewManager() *Manager {
+// NewDownloader creates a new embeddings downloader
+func NewDownloader() *Downloader {
 	homeDir, _ := os.UserHomeDir()
 	embedDir := filepath.Join(homeDir, ".eda", "vscode", "embeddings")
 
-	return &Manager{
+	return &Downloader{
 		embedDir:     embedDir,
-		srlURL:       "https://github.com/nokia-eda/llm-embeddings/releases/download/nokia-srl-25.3.3/llm-embeddings-srl-25-3-3.tar.gz",
-		srosURL:      "https://github.com/nokia-eda/llm-embeddings/releases/download/nokia-sros-v25.3.r2/llm-embeddings-sros-25-3-r2.tar.gz",
-		srlFileName:  "ce-llm-embed-db-srl-25.3.3.json",
-		srosFileName: "ce-llm-embed-db-sros-25.3.r1.json",
+		srlURL:       srlEmbeddingURL,
+		srosURL:      srosEmbeddingURL,
+		srlFileName:  srlEmbeddingFile,
+		srosFileName: srosEmbeddingFile,
 	}
 }
 
 // GetEmbeddingPath returns the path for the specified platform
-func (m *Manager) GetEmbeddingPath(platform models.EmbeddingType) string {
+func (d *Downloader) GetEmbeddingPath(platform models.EmbeddingType) string {
 	switch platform {
 	case models.SROS:
-		return filepath.Join(m.embedDir, m.srosFileName)
+		return filepath.Join(d.embedDir, d.srosFileName)
 	default:
-		return filepath.Join(m.embedDir, m.srlFileName)
+		return filepath.Join(d.embedDir, d.srlFileName)
 	}
 }
 
 // EnsureEmbeddings ensures embeddings are downloaded for the specified platform
-func (m *Manager) EnsureEmbeddings(platform models.EmbeddingType, verbose bool) (string, error) {
+func (d *Downloader) EnsureEmbeddings(platform models.EmbeddingType, verbose bool) (string, error) {
 	// Create embeddings directory
-	if err := os.MkdirAll(m.embedDir, constants.DirPermissions); err != nil {
+	if err := os.MkdirAll(d.embedDir, constants.DirPermissions); err != nil {
 		return "", fmt.Errorf("failed to create embeddings directory: %v", err)
 	}
 
-	path := m.GetEmbeddingPath(platform)
+	path := d.GetEmbeddingPath(platform)
 
 	// Check if embeddings already exist
 	if _, err := os.Stat(path); err == nil {
@@ -62,7 +62,7 @@ func (m *Manager) EnsureEmbeddings(platform models.EmbeddingType, verbose bool) 
 	}
 
 	// Download embeddings
-	if err := m.downloadEmbeddings(platform, verbose); err != nil {
+	if err := d.downloadEmbeddings(platform, verbose); err != nil {
 		return "", err
 	}
 
@@ -86,8 +86,8 @@ func DetectPlatformFromQuery(query string) models.EmbeddingType {
 	return models.SRL
 }
 
-func (m *Manager) downloadEmbeddings(platform models.EmbeddingType, verbose bool) error {
-	url, expectedFile := m.getURLAndFile(platform)
+func (d *Downloader) downloadEmbeddings(platform models.EmbeddingType, verbose bool) error {
+	url, expectedFile := d.getURLAndFile(platform)
 
 	if verbose {
 		platformName := "SRL"
@@ -115,7 +115,7 @@ func (m *Manager) downloadEmbeddings(platform models.EmbeddingType, verbose bool
 	}
 
 	// Extract the tar.gz archive
-	if err := m.extractTarGz(resp.Body); err != nil {
+	if err := d.extractTarGz(resp.Body); err != nil {
 		return err
 	}
 
@@ -124,7 +124,7 @@ func (m *Manager) downloadEmbeddings(platform models.EmbeddingType, verbose bool
 	}
 
 	// Verify the expected file exists
-	expectedPath := filepath.Join(m.embedDir, expectedFile)
+	expectedPath := filepath.Join(d.embedDir, expectedFile)
 	if _, err := os.Stat(expectedPath); err != nil {
 		return fmt.Errorf("expected embedding file not found after extraction: %s", expectedPath)
 	}
@@ -132,16 +132,16 @@ func (m *Manager) downloadEmbeddings(platform models.EmbeddingType, verbose bool
 	return nil
 }
 
-func (m *Manager) getURLAndFile(platform models.EmbeddingType) (url, file string) {
+func (d *Downloader) getURLAndFile(platform models.EmbeddingType) (url, file string) {
 	switch platform {
 	case models.SROS:
-		return m.srosURL, m.srosFileName
+		return d.srosURL, d.srosFileName
 	default:
-		return m.srlURL, m.srlFileName
+		return d.srlURL, d.srlFileName
 	}
 }
 
-func (m *Manager) extractTarGz(r io.Reader) error {
+func (d *Downloader) extractTarGz(r io.Reader) error {
 	gzr, err := gzip.NewReader(r)
 	if err != nil {
 		return fmt.Errorf("failed to create gzip reader: %v", err)
@@ -161,7 +161,7 @@ func (m *Manager) extractTarGz(r io.Reader) error {
 			return fmt.Errorf("tar reading error: %v", err)
 		}
 
-		target := filepath.Join(m.embedDir, header.Name)
+		target := filepath.Join(d.embedDir, header.Name)
 
 		switch header.Typeflag {
 		case tar.TypeDir:

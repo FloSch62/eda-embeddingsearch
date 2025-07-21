@@ -13,11 +13,11 @@ import (
 
 // Loader handles loading of embedding databases
 type Loader struct {
-	cacheManager cache.Manager
+	cacheManager cache.CacheManager
 }
 
 // NewLoader creates a new loader with the specified cache manager
-func NewLoader(cacheManager cache.Manager) *Loader {
+func NewLoader(cacheManager cache.CacheManager) *Loader {
 	return &Loader{
 		cacheManager: cacheManager,
 	}
@@ -107,7 +107,7 @@ func (l *Loader) loadFromJSON(path, cachePath string, verbose bool) (*models.Emb
 func (l *Loader) loadJSONFile(path string) (*models.EmbeddingDB, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open embedding file %s: %w", path, err)
 	}
 	defer func() {
 		_ = file.Close()
@@ -116,7 +116,7 @@ func (l *Loader) loadJSONFile(path string) (*models.EmbeddingDB, error) {
 	var db models.EmbeddingDB
 	dec := json.NewDecoder(file)
 	if err := dec.Decode(&db); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to decode embedding JSON from %s: %w", path, err)
 	}
 
 	return &db, nil
@@ -160,6 +160,6 @@ func (l *Loader) printLoadStats(db *models.EmbeddingDB, start time.Time) {
 // LoadDB loads an embedding database from disk with caching
 // Deprecated: Use NewLoader with dependency injection instead
 func LoadDB(path string, verbose bool) (*models.EmbeddingDB, error) {
-	loader := NewLoader(cache.NewManager())
+	loader := NewLoader(cache.NewCacheManager())
 	return loader.Load(path, verbose)
 }
