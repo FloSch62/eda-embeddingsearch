@@ -62,8 +62,9 @@ func (e *Engine) countBasedScore(count int, thresholds []struct {
 	return 0
 }
 
-// scoreEntryV2 is a consolidated version of scoreEntry using parameterized functions
-func (e *Engine) scoreEntryV2(key string, entry models.EmbeddingEntry, query string, words []string) float64 {
+// scoreEntry calculates the relevance score for a candidate entry using
+// various heuristics and matching rules.
+func (e *Engine) scoreEntry(key string, entry models.EmbeddingEntry, query string, words []string) float64 {
 	keyTokens := Tokenize(key)
 	textTokens := Tokenize(entry.ReferenceText + " " + entry.Text)
 	queryLower := strings.ToLower(query)
@@ -369,11 +370,6 @@ func (e *Engine) penaltyScore(queryLower, key string) float64 {
 	}
 
 	return score
-}
-
-// scoreEntry is the main entry point for scoring, wraps scoreEntryV2
-func (e *Engine) scoreEntry(key string, entry models.EmbeddingEntry, query string, words []string) float64 {
-	return e.scoreEntryV2(key, entry, query, words)
 }
 
 // pathDepthScore calculates score based on path depth
