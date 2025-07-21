@@ -52,11 +52,7 @@ embeddingsearch -platform srl "interface statistics"
 # JSON output
 embeddingsearch -json "top 5 processes by memory"
 
-# Verbose mode for debugging
-embeddingsearch -verbose "ospf neighbors state"
-```
-
-### Example Queries
+# Example Queries
 
 ```bash
 # Show commands
@@ -84,7 +80,6 @@ Usage: embeddingsearch [options] <query>
 Options:
   -json              Output results in JSON format
   -platform string   Force platform type (srl or sros)
-  -verbose           Enable verbose output for debugging
   -help              Show this help message
 ```
 
@@ -157,18 +152,6 @@ $ embeddingsearch -json "interface ethernet-1/1"
 }
 ```
 
-### Verbose Mode
-```bash
-$ embeddingsearch -v "bgp neighbors"
-
-Top match (score: 62.50):
-.namespace.node.srl.network-instance.protocols.bgp.neighbor fields [admin-state, session-state, last-state]
-
-Query components:
-  Table: .namespace.node.srl.network-instance.protocols.bgp.neighbor
-  Fields: admin-state, session-state, last-state
-```
-
 ## Advanced Features
 
 ### Synonym Expansion
@@ -205,11 +188,6 @@ If the wrong platform is detected, use the `-platform` flag:
 embeddingsearch -platform sros "show card detail"
 ```
 
-### Debugging
-Use `-verbose` flag to see detailed search process:
-```bash
-embeddingsearch -verbose "your query here"
-```
 
 ## Contributing
 

@@ -56,7 +56,7 @@ func (d *Downloader) GetEmbeddingPath(platform models.EmbeddingType) string {
 }
 
 // EnsureEmbeddings ensures embeddings are downloaded for the specified platform
-func (d *Downloader) EnsureEmbeddings(platform models.EmbeddingType, verbose bool) (string, error) {
+func (d *Downloader) EnsureEmbeddings(platform models.EmbeddingType) (string, error) {
 	// Create embeddings directory
 	if err := os.MkdirAll(d.embedDir, constants.DirPermissions); err != nil {
 		return "", fmt.Errorf("failed to create embeddings directory: %v", err)
@@ -70,7 +70,7 @@ func (d *Downloader) EnsureEmbeddings(platform models.EmbeddingType, verbose boo
 	}
 
 	// Download embeddings
-	if err := d.downloadEmbeddings(platform, verbose); err != nil {
+	if err := d.downloadEmbeddings(platform); err != nil {
 		return "", err
 	}
 
@@ -94,16 +94,8 @@ func DetectPlatformFromQuery(query string) models.EmbeddingType {
 	return models.SRL
 }
 
-func (d *Downloader) downloadEmbeddings(platform models.EmbeddingType, verbose bool) error {
+func (d *Downloader) downloadEmbeddings(platform models.EmbeddingType) error {
 	url, expectedFile := d.getURLAndFile(platform)
-
-	if verbose {
-		platformName := "SRL"
-		if platform == models.SROS {
-			platformName = "SROS"
-		}
-		fmt.Printf("Downloading %s embeddings from GitHub...\n", platformName)
-	}
 
 	// Download the tar.gz file
 	resp, err := http.Get(url)
@@ -118,19 +110,11 @@ func (d *Downloader) downloadEmbeddings(platform models.EmbeddingType, verbose b
 		return fmt.Errorf("failed to download embeddings: HTTP %d", resp.StatusCode)
 	}
 
-	if verbose {
-		fmt.Println("Extracting embeddings...")
-	}
-
 	// Extract the tar.gz archive
 	if err := d.extractTarGz(resp.Body); err != nil {
 		return err
 	}
-
-	if verbose {
-		fmt.Println("Embeddings extracted successfully!")
-	}
-
+	// Embeddings extracted successfully
 	// Verify the expected file exists
 	expectedPath := filepath.Join(d.embedDir, expectedFile)
 	if _, err := os.Stat(expectedPath); err != nil {

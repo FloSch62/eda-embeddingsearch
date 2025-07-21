@@ -16,13 +16,12 @@ import (
 
 func main() {
 	dbPath := flag.String("db", "", "path to embedding db (auto-downloads if not specified)")
-	verbose := flag.Bool("v", false, "verbose output showing all query components")
 	jsonOutput := flag.Bool("json", false, "output results as JSON")
 	platformStr := flag.String("platform", "", "force platform type (srl or sros)")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
-		fmt.Println("usage: embeddingsearch [-v] [-json] [-platform srl|sros] <query>")
+		fmt.Println("usage: embeddingsearch [-json] [-platform srl|sros] <query>")
 		fmt.Println("\nExamples:")
 		fmt.Println("  embeddingsearch 'show interface statistics for leaf1'")
 		fmt.Println("  embeddingsearch 'get top 5 processes by memory usage'")
@@ -59,7 +58,7 @@ func main() {
 		// Auto-download embeddings if not specified
 		downloader := download.NewDownloader()
 		var err error
-		finalDBPath, err = downloader.EnsureEmbeddings(platform, !*jsonOutput)
+		finalDBPath, err = downloader.EnsureEmbeddings(platform)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to download embeddings: %v\n", err)
 			os.Exit(1)
@@ -67,7 +66,7 @@ func main() {
 	}
 
 	loader := embedding.NewLoader(cache.NewCacheManager())
-	db, err := loader.Load(finalDBPath, !*jsonOutput)
+	db, err := loader.Load(finalDBPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load db: %v\n", err)
 		os.Exit(1)
@@ -89,7 +88,7 @@ func main() {
 	if *jsonOutput {
 		outputJSON(results)
 	} else {
-		outputText(results, *verbose)
+		outputText(results)
 	}
 }
 
@@ -121,7 +120,7 @@ func outputJSON(results []models.SearchResult) {
 	fmt.Println(string(jsonData))
 }
 
-func outputText(results []models.SearchResult, verbose bool) {
+func outputText(results []models.SearchResult) {
 	// Display top match
 	top := results[0]
 	fmt.Printf("Top match (score: %.2f):\n%s\n", top.Score, top.EQLQuery.String())
@@ -131,10 +130,6 @@ func outputText(results []models.SearchResult, verbose bool) {
 	}
 	if len(top.AvailableFields) > 0 {
 		fmt.Printf("Available fields: %s\n", strings.Join(top.AvailableFields, ", "))
-	}
-
-	if verbose {
-		printQueryComponents(&top)
 	}
 
 	// Show other matches (limit to 9 more for total of 10)
@@ -154,35 +149,5 @@ func outputText(results []models.SearchResult, verbose bool) {
 				fmt.Printf("   Available fields: %s\n", strings.Join(other.AvailableFields, ", "))
 			}
 		}
-	}
-}
-
-func printQueryComponents(result *models.SearchResult) {
-	fmt.Println("\nQuery components:")
-	fmt.Printf("  Table: %s\n", result.EQLQuery.Table)
-	if len(result.EQLQuery.Fields) > 0 {
-		fmt.Printf("  Fields: %s\n", strings.Join(result.EQLQuery.Fields, ", "))
-	}
-	if result.EQLQuery.WhereClause != "" {
-		fmt.Printf("  Where: %s\n", result.EQLQuery.WhereClause)
-	}
-	if len(result.EQLQuery.OrderBy) > 0 {
-		fmt.Print("  Order by: ")
-		for i, ob := range result.EQLQuery.OrderBy {
-			if i > 0 {
-				fmt.Print(", ")
-			}
-			fmt.Printf("%s %s", ob.Field, ob.Direction)
-			if ob.Algorithm != "" {
-				fmt.Printf(" %s", ob.Algorithm)
-			}
-		}
-		fmt.Println()
-	}
-	if result.EQLQuery.Limit > 0 {
-		fmt.Printf("  Limit: %d\n", result.EQLQuery.Limit)
-	}
-	if result.EQLQuery.Delta != nil {
-		fmt.Printf("  Delta: %s %d\n", result.EQLQuery.Delta.Unit, result.EQLQuery.Delta.Value)
 	}
 }

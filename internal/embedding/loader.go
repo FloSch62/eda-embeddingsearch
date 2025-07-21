@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"time"
 
 	"github.com/eda-labs/eda-embeddingsearch/internal/cache"
 	"github.com/eda-labs/eda-embeddingsearch/pkg/models"
@@ -24,62 +22,44 @@ func NewLoader(cacheManager cache.CacheManager) *Loader {
 }
 
 // Load loads an embedding database from disk with caching
-func (l *Loader) Load(path string, verbose bool) (*models.EmbeddingDB, error) {
+func (l *Loader) Load(path string) (*models.EmbeddingDB, error) {
 	// Check memory cache first
-	if db := l.loadFromMemoryCache(path, verbose); db != nil {
+	if db := l.loadFromMemoryCache(path); db != nil {
 		return db, nil
 	}
 
 	// Check binary cache
 	cachePath := l.cacheManager.GetBinaryCachePath(path)
-	if db := l.loadFromBinaryCache(path, cachePath, verbose); db != nil {
+	if db := l.loadFromBinaryCache(path, cachePath); db != nil {
 		return db, nil
 	}
 
 	// Load from JSON file
-	return l.loadFromJSON(path, cachePath, verbose)
+	return l.loadFromJSON(path, cachePath)
 }
 
-func (l *Loader) loadFromMemoryCache(path string, verbose bool) *models.EmbeddingDB {
+func (l *Loader) loadFromMemoryCache(path string) *models.EmbeddingDB {
 	if cached, exists := l.cacheManager.GetFromMemory(path); exists {
-		if verbose {
-			fmt.Printf("Using in-memory cached embeddings\n")
-		}
 		return cached
 	}
 	return nil
 }
 
-func (l *Loader) loadFromBinaryCache(path, cachePath string, verbose bool) *models.EmbeddingDB {
+func (l *Loader) loadFromBinaryCache(path, cachePath string) *models.EmbeddingDB {
 	if !l.cacheManager.IsBinaryCacheValid(path, cachePath) {
 		return nil
 	}
 
-	if verbose {
-		fmt.Printf("Loading from binary cache...\n")
-	}
-	start := time.Now()
-
 	db, err := l.cacheManager.LoadBinaryCache(cachePath)
 	if err == nil {
-		if verbose {
-			fmt.Printf("Loaded binary cache in %.2f seconds\n", time.Since(start).Seconds())
-		}
 		l.cacheManager.StoreInMemory(path, db)
 		return db
 	}
 
-	if verbose {
-		fmt.Printf("Binary cache failed, falling back to JSON: %v\n", err)
-	}
 	return nil
 }
 
-func (l *Loader) loadFromJSON(path, cachePath string, verbose bool) (*models.EmbeddingDB, error) {
-	if verbose {
-		fmt.Printf("Loading embeddings from %s...\n", filepath.Base(path))
-	}
-	start := time.Now()
+func (l *Loader) loadFromJSON(path, cachePath string) (*models.EmbeddingDB, error) {
 
 	// Load JSON data
 	db, err := l.loadJSONFile(path)
@@ -87,19 +67,11 @@ func (l *Loader) loadFromJSON(path, cachePath string, verbose bool) (*models.Emb
 		return nil, err
 	}
 
-	if verbose {
-		fmt.Printf("JSON loaded in %.2f seconds\n", time.Since(start).Seconds())
-	}
-
 	// Build index and save cache
-	l.postProcessDatabase(db, cachePath, verbose)
+	l.postProcessDatabase(db, cachePath)
 
 	// Cache in memory
 	l.cacheManager.StoreInMemory(path, db)
-
-	if verbose {
-		l.printLoadStats(db, start)
-	}
 
 	return db, nil
 }
@@ -122,37 +94,14 @@ func (l *Loader) loadJSONFile(path string) (*models.EmbeddingDB, error) {
 	return &db, nil
 }
 
-func (l *Loader) postProcessDatabase(db *models.EmbeddingDB, cachePath string, verbose bool) {
+func (l *Loader) postProcessDatabase(db *models.EmbeddingDB, cachePath string) {
 	// Build inverted index
-	if verbose {
-		fmt.Println("Building search index...")
-	}
-	indexStart := time.Now()
 	BuildInvertedIndex(db)
-	if verbose {
-		fmt.Printf("Index built in %.2f seconds\n", time.Since(indexStart).Seconds())
-	}
 
 	// Save binary cache
-	l.saveBinaryCache(db, cachePath, verbose)
+	l.saveBinaryCache(db, cachePath)
 }
 
-func (l *Loader) saveBinaryCache(db *models.EmbeddingDB, cachePath string, verbose bool) {
-	if verbose {
-		fmt.Println("Saving binary cache for faster future loads...")
-	}
-	cacheStart := time.Now()
-
-	if err := l.cacheManager.SaveBinaryCache(db, cachePath); err != nil {
-		if verbose {
-			fmt.Printf("Warning: Failed to save binary cache: %v\n", err)
-		}
-	} else if verbose {
-		fmt.Printf("Binary cache saved in %.2f seconds\n", time.Since(cacheStart).Seconds())
-	}
-}
-
-func (l *Loader) printLoadStats(db *models.EmbeddingDB, start time.Time) {
-	fmt.Printf("Total load time: %.2f seconds\n", time.Since(start).Seconds())
-	fmt.Printf("Loaded %d embeddings with %d indexed terms\n", len(db.Table), len(db.InvertedIndex))
+func (l *Loader) saveBinaryCache(db *models.EmbeddingDB, cachePath string) {
+	_ = l.cacheManager.SaveBinaryCache(db, cachePath)
 }
