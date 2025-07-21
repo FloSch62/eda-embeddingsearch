@@ -71,7 +71,7 @@ func TestExpandSynonyms(t *testing.T) {
 		},
 		{
 			name: "typo corrections",
-			//nolint:misspell
+			//nolint:misspell // testing intentional misspellings for typo correction
 			input:    []string{"interfce", "neighors", "bandwith"},
 			expected: []string{"interface", "neighbor", "bandwidth"},
 		},

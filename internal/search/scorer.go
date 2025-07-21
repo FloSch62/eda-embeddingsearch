@@ -48,9 +48,9 @@ func descriptionScore(queryLower string, entry models.EmbeddingEntry, words []st
 	return score
 }
 
-func keywordScore(keyTokens, textTokens, words []string) (float64, int) {
-	score := 0.0
-	pathMatchCount := 0
+func keywordScore(keyTokens, textTokens, words []string) (score float64, pathMatchCount int) {
+	score = 0.0
+	pathMatchCount = 0
 	if len(keyTokens) > 0 && len(words) > 0 {
 		lastSegment := keyTokens[len(keyTokens)-1]
 		for _, w := range words {
@@ -171,8 +171,8 @@ func bigramScore(keyLower string, bigrams []string) float64 {
 	return score
 }
 
-func extractFieldScore(query, key string, entry *models.EmbeddingEntry) (float64, []string) {
-	extractedFields := eql.ExtractFields(query, key, entry)
+func extractFieldScore(query, key string, entry *models.EmbeddingEntry) (score float64, extractedFields []string) {
+	extractedFields = eql.ExtractFields(query, key, entry)
 	if len(extractedFields) == 0 {
 		return 0, nil
 	}
@@ -258,7 +258,7 @@ func bandwidthScore(queryLower, key string, extractedFields []string) float64 {
 }
 
 // scoreEntry calculates the score for a single embedding entry
-func (e *Engine) scoreEntry(key string, entry models.EmbeddingEntry, query string, words []string, bigrams []string) float64 {
+func (e *Engine) scoreEntry(key string, entry models.EmbeddingEntry, query string, words, bigrams []string) float64 {
 	keyTokens := Tokenize(key)
 	textTokens := Tokenize(entry.ReferenceText + " " + entry.Text)
 	queryLower := strings.ToLower(query)

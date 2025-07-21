@@ -30,10 +30,10 @@ func GetEmbeddingsPath() string {
 }
 
 // GetEmbeddingPaths returns the paths for both SRL and SROS embeddings
-func GetEmbeddingPaths() (string, string) {
+func GetEmbeddingPaths() (srlPath, srosPath string) {
 	embeddingsDir := GetEmbeddingsPath()
-	srlPath := filepath.Join(embeddingsDir, srlEmbeddingFile)
-	srosPath := filepath.Join(embeddingsDir, srosEmbeddingFile)
+	srlPath = filepath.Join(embeddingsDir, srlEmbeddingFile)
+	srosPath = filepath.Join(embeddingsDir, srosEmbeddingFile)
 	return srlPath, srosPath
 }
 
@@ -124,7 +124,7 @@ func DownloadEmbeddings(embType models.EmbeddingType, embeddingsDir string, verb
 		filePath := filepath.Join(embeddingsDir, header.Name)
 
 		// Create directory if needed
-		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 			return fmt.Errorf("failed to create directory: %v", err)
 		}
 
@@ -162,7 +162,7 @@ func DownloadAndExtractEmbeddings(query string, verbose bool) (string, error) {
 	srlPath, srosPath := GetEmbeddingPaths()
 
 	// Create embeddings directory
-	if err := os.MkdirAll(embeddingsDir, 0755); err != nil {
+	if err := os.MkdirAll(embeddingsDir, 0o755); err != nil {
 		return "", fmt.Errorf("failed to create embeddings directory: %v", err)
 	}
 

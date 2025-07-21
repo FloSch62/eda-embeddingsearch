@@ -23,7 +23,7 @@ func ParseEmbeddingText(text string) []string {
 }
 
 // ExtractFields extracts fields from natural language
-func ExtractFields(query string, tablePath string, embeddingEntry *models.EmbeddingEntry) []string {
+func ExtractFields(query, tablePath string, embeddingEntry *models.EmbeddingEntry) []string {
 	fields := []string{}
 	lower := strings.ToLower(query)
 
@@ -201,13 +201,13 @@ func ExtractConditions(query string, tablePath string) map[string]string {
 }
 
 // GenerateWhereClause generates WHERE clause
-func GenerateWhereClause(tablePath string, query string) string {
+func GenerateWhereClause(tablePath, query string) string {
 	var whereParts []string
 
 	// Extract node name
 	nodeName := ExtractNodeName(query)
 	if nodeName != "" && strings.Contains(tablePath, ".namespace.node.") {
-		whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name = \"%s\"", nodeName))
+		whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name = %q", nodeName))
 	}
 
 	// Extract other conditions
@@ -216,7 +216,7 @@ func GenerateWhereClause(tablePath string, query string) string {
 		if strings.HasPrefix(value, ">") || strings.HasPrefix(value, "<") || strings.HasPrefix(value, "=") {
 			whereParts = append(whereParts, fmt.Sprintf("%s %s", field, value))
 		} else {
-			whereParts = append(whereParts, fmt.Sprintf("%s = \"%s\"", field, value))
+			whereParts = append(whereParts, fmt.Sprintf("%s = %q", field, value))
 		}
 	}
 
