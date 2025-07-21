@@ -12,10 +12,17 @@ linters:
     - errcheck
     - staticcheck
     - ineffassign
+    - iface
+    - interfacebloat
     - misspell
     - unconvert
+    - unused
+    - unparam
+    - dupl
+    - dupword
     - gocritic
     - gocyclo
+    - godox
   exclusions:
     paths:
       - bin
