@@ -19,7 +19,17 @@ func main() {
 	dbPath := flag.String("db", "", "path to embedding db (auto-downloads if not specified)")
 	jsonOutput := flag.Bool("json", false, "output results as JSON")
 	platformStr := flag.String("platform", "", "force platform type (srl or sros)")
+	setup := flag.Bool("setup", false, "download all embeddings and build caches")
 	flag.Parse()
+
+	if *setup || (flag.NArg() > 0 && flag.Arg(0) == "setup") {
+		if err := runSetup(); err != nil {
+			fmt.Fprintf(os.Stderr, "setup failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("setup completed")
+		return
+	}
 
 	if flag.NArg() == 0 {
 		fmt.Println("usage: embeddingsearch [-json] [-platform srl|sros] <query>")
@@ -151,4 +161,34 @@ func outputText(results []models.SearchResult) {
 			}
 		}
 	}
+}
+
+func runSetup() error {
+	downloader := download.NewDownloader()
+	loader := embedding.NewLoader(cache.NewCacheManager())
+
+	platforms := []models.EmbeddingType{models.SRL, models.SROS}
+	for _, platform := range platforms {
+		name := ""
+		if platform == models.SROS {
+			name = "SROS"
+		} else {
+			name = "SRL"
+		}
+
+		fmt.Printf("Downloading embeddings for %s...\n", name)
+		path, err := downloader.EnsureEmbeddings(platform)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Downloaded to %s\n", path)
+
+		fmt.Printf("Loading embeddings for %s into cache...\n", name)
+		if _, err := loader.Load(path); err != nil {
+			return err
+		}
+		fmt.Printf("Loaded embeddings for %s\n", name)
+	}
+
+	return nil
 }

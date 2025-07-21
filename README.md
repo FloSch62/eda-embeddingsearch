@@ -52,6 +52,11 @@ embeddingsearch -platform srl "interface statistics"
 # JSON output
 embeddingsearch -json "top 5 processes by memory"
 
+# Initial setup
+embeddingsearch setup
+# or as a flag
+# embeddingsearch -setup
+
 # Example Queries
 
 ```bash
@@ -80,6 +85,7 @@ Usage: embeddingsearch [options] <query>
 Options:
   -json              Output results in JSON format
   -platform string   Force platform type (srl or sros)
+  -setup             Download all embeddings and build caches (same as `setup` command)
   -help              Show this help message
 ```
 
