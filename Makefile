@@ -26,15 +26,22 @@ all: clean build
 
 build: build-linux build-darwin build-windows
 
-build-linux:
-	@echo "Building for Linux..."
+build-linux: build-linux-amd64 build-linux-arm64
+
+build-linux-amd64:
+	@echo "Building for Linux amd64..."
 	@mkdir -p $(LINUX_DIR)
-	GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(LINUX_DIR)/$(BINARY_NAME) $(CMD_DIR)
+	GOOS=linux GOARCH=amd64 $(GOBUILD) -o $(LINUX_DIR)/$(BINARY_NAME)-amd64 $(CMD_DIR)
+
+build-linux-arm64:
+	@echo "Building for Linux arm64..."
+	 @mkdir -p $(LINUX_DIR)
+	GOOS=linux GOARCH=arm64 $(GOBUILD) -o $(LINUX_DIR)/$(BINARY_NAME)-arm64 $(CMD_DIR)
 
 build-darwin:
 	@echo "Building for macOS..."
 	@mkdir -p $(DARWIN_DIR)
-	GOOS=darwin GOARCH=amd64 $(GOBUILD) -o $(DARWIN_DIR)/$(BINARY_NAME) $(CMD_DIR)
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) -o $(DARWIN_DIR)/$(BINARY_NAME)-amd64 $(CMD_DIR)
 	GOOS=darwin GOARCH=arm64 $(GOBUILD) -o $(DARWIN_DIR)/$(BINARY_NAME)-arm64 $(CMD_DIR)
 
 build-windows:

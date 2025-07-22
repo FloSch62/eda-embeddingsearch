@@ -25,8 +25,9 @@ jobs:
       - name: Package binaries
         run: |
           # Create archives for each platform
-          cd bin/linux   && tar -czf ../../embeddingsearch-linux-amd64.tar.gz embeddingsearch && cd ../..
-          cd bin/darwin  && tar -czf ../../embeddingsearch-darwin-amd64.tar.gz embeddingsearch  && cd ../..
+          cd bin/linux   && tar -czf ../../embeddingsearch-linux-amd64.tar.gz embeddingsearch-amd64 && cd ../..
+          cd bin/linux   && tar -czf ../../embeddingsearch-linux-arm64.tar.gz embeddingsearch-arm64 && cd ../..
+          cd bin/darwin  && tar -czf ../../embeddingsearch-darwin-amd64.tar.gz embeddingsearch-amd64  && cd ../..
           cd bin/darwin  && tar -czf ../../embeddingsearch-darwin-arm64.tar.gz embeddingsearch-arm64 && cd ../..
           cd bin/win32   && zip   ../../embeddingsearch-windows-amd64.zip embeddingsearch.exe && cd ../..
 
@@ -39,6 +40,7 @@ jobs:
         with:
           files: |
             embeddingsearch-linux-amd64.tar.gz
+            embeddingsearch-linux-arm64.tar.gz
             embeddingsearch-darwin-amd64.tar.gz
             embeddingsearch-darwin-arm64.tar.gz
             embeddingsearch-windows-amd64.zip

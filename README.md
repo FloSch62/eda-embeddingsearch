@@ -17,12 +17,15 @@ A command-line tool that converts natural language queries into EQL (Event Query
 
 Download the appropriate binary for your platform from the [releases page](https://github.com/eda-labs/eda-embeddingsearch/releases):
 
-- **Linux**: `embeddingsearch-linux-amd64`
+- **Linux AMD64**: `embeddingsearch-linux-amd64`
+- **Linux ARM64**: `embeddingsearch-linux-arm64`
 - **macOS Intel**: `embeddingsearch-darwin-amd64`
 - **macOS Apple Silicon**: `embeddingsearch-darwin-arm64`
 - **Windows**: `embeddingsearch-windows-amd64.exe`
 
 ### Build from Source
+
+Requires **Go 1.24** or later.
 
 ```bash
 git clone https://github.com/eda-labs/eda-embeddingsearch.git
@@ -31,7 +34,8 @@ make build
 ```
 
 Binaries will be created in the `bin/` directory for all platforms:
-- Linux: `bin/linux/embeddingsearch`
+- Linux AMD64: `bin/linux/embeddingsearch-amd64`
+- Linux ARM64: `bin/linux/embeddingsearch-arm64`
 - macOS Intel: `bin/darwin/embeddingsearch`
 - macOS ARM64: `bin/darwin/embeddingsearch-arm64`
 - Windows: `bin/win32/embeddingsearch.exe`
