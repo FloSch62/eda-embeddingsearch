@@ -114,6 +114,43 @@ func ExtractNodeName(query string) string {
 	return ""
 }
 
+// ExtractNodeNames extracts all node names from query for multi-node support
+func ExtractNodeNames(query string) []string {
+	var nodeNames []string
+	words := strings.Fields(strings.ToLower(query))
+	
+	for i, w := range words {
+		w = cleanPunctuation(w)
+
+		// Skip generic references
+		if isGenericNodeReference(w) {
+			continue
+		}
+
+		// Check for specific node patterns
+		if nodeName := checkNodePattern(w); nodeName != "" {
+			nodeNames = append(nodeNames, nodeName)
+		}
+
+		// Check for "on <nodename>" or "for <nodename>" patterns
+		if nodeName := checkPrepositionPattern(w, i, words); nodeName != "" {
+			nodeNames = append(nodeNames, nodeName)
+		}
+	}
+	
+	// Remove duplicates
+	uniqueNodes := make([]string, 0, len(nodeNames))
+	seen := make(map[string]bool)
+	for _, node := range nodeNames {
+		if !seen[node] {
+			uniqueNodes = append(uniqueNodes, node)
+			seen[node] = true
+		}
+	}
+	
+	return uniqueNodes
+}
+
 func cleanPunctuation(word string) string {
 	word = strings.TrimSuffix(word, "?")
 	word = strings.TrimSuffix(word, "!")
@@ -165,6 +202,7 @@ func ExtractConditions(query, tablePath string) map[string]string {
 	lower := strings.ToLower(query)
 
 	extractInterfaceConditions(lower, tablePath, conditions)
+	extractBGPConditions(lower, tablePath, conditions)
 	extractAlarmConditions(lower, tablePath, conditions)
 	extractProcessConditions(lower, tablePath, conditions)
 	extractNumericConditions(lower, conditions)
@@ -187,6 +225,42 @@ func extractInterfaceConditions(lower, tablePath string, conditions map[string]s
 		conditions["admin-state"] = "enable"
 	} else if strings.Contains(lower, "disabled") {
 		conditions["admin-state"] = "disable"
+	}
+}
+
+func extractBGPConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "bgp") {
+		return
+	}
+
+	// BGP session state conditions
+	if strings.Contains(tablePath, "neighbor") {
+		if strings.Contains(lower, "established") {
+			conditions["session-state"] = "established"
+		} else if strings.Contains(lower, "idle") {
+			conditions["session-state"] = "idle"
+		} else if strings.Contains(lower, "active") {
+			conditions["session-state"] = "active"
+		} else if strings.Contains(lower, "connect") {
+			conditions["session-state"] = "connect"
+		} else if strings.Contains(lower, "opensent") {
+			conditions["session-state"] = "opensent"
+		} else if strings.Contains(lower, "openconfirm") {
+			conditions["session-state"] = "openconfirm"
+		}
+		
+		// Handle "down" as a general term for non-established sessions
+		if strings.Contains(lower, "down") && !strings.Contains(lower, "established") {
+			// Use != established to catch any non-established state
+			conditions["session-state"] = "!= \"established\""
+		}
+		
+		// BGP peer type conditions
+		if strings.Contains(lower, "ebgp") || strings.Contains(lower, "external") {
+			conditions["peer-type"] = "external"
+		} else if strings.Contains(lower, "ibgp") || strings.Contains(lower, "internal") {
+			conditions["peer-type"] = "internal"
+		}
 	}
 }
 
@@ -244,16 +318,25 @@ func normalizeOperator(op string) string {
 func GenerateWhereClause(tablePath, query string) string {
 	var whereParts []string
 
-	// Extract node name
-	nodeName := ExtractNodeName(query)
-	if nodeName != "" && strings.Contains(tablePath, ".namespace.node.") {
-		whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name = %q", nodeName))
+	// Extract node names (support multiple nodes)
+	nodeNames := ExtractNodeNames(query)
+	if len(nodeNames) > 0 && strings.Contains(tablePath, ".namespace.node.") {
+		if len(nodeNames) == 1 {
+			whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name = %q", nodeNames[0]))
+		} else {
+			// Multiple nodes: use IN clause
+			nodeList := make([]string, len(nodeNames))
+			for i, name := range nodeNames {
+				nodeList[i] = fmt.Sprintf("%q", name)
+			}
+			whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name in [%s]", strings.Join(nodeList, ", ")))
+		}
 	}
 
 	// Extract other conditions
 	conditions := ExtractConditions(query, tablePath)
 	for field, value := range conditions {
-		if strings.HasPrefix(value, ">") || strings.HasPrefix(value, "<") || strings.HasPrefix(value, "=") {
+		if strings.HasPrefix(value, ">") || strings.HasPrefix(value, "<") || strings.HasPrefix(value, "=") || strings.HasPrefix(value, "!") {
 			whereParts = append(whereParts, fmt.Sprintf("%s %s", field, value))
 		} else {
 			whereParts = append(whereParts, fmt.Sprintf("%s = %q", field, value))
