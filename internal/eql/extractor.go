@@ -33,42 +33,8 @@ func ExtractFields(query, tablePath string, embeddingEntry *models.EmbeddingEntr
 	// Get available fields from embedding
 	availableFields := ParseEmbeddingText(embeddingEntry.Text)
 
-	// Field keywords to field names mapping
-	fieldKeywords := map[string][]string{
-		"state":       {"admin-state", "oper-state", "state"},
-		"status":      {"status", "oper-state", "admin-state"},
-		"description": {"description"},
-		"name":        {"name"},
-		"memory":      {"memory", "memory-usage", "used"},
-		"cpu":         {"cpu", "cpu-usage"},
-		"traffic":     {"in-octets", "out-octets"},
-		"bandwidth":   {"in-octets", "out-octets"},
-		"packets":     {"in-packets", "out-packets"},
-		"errors":      {"in-error-packets", "out-error-packets", "in-errors", "out-errors"},
-		"severity":    {"severity"},
-		"time":        {"time-created", "last-change", "last-clear"},
-		"octets":      {"in-octets", "out-octets"},
-		"mtu":         {"mtu", "ip-mtu", "oper-ip-mtu"},
-		"drops":       {"in-drops", "out-drops", "in-discards", "out-discards"},
-		
-		// Enhanced networking field mappings
-		"speed":       {"port-speed", "lag-speed", "member-speed"},
-		"vlan":        {"vlan-tagging", "vlan-id", "tpid"},
-		"lag":         {"aggregate-id", "lag-type", "lacp-mode"},
-		"optical":     {"form-factor", "connector-type", "wavelength"},
-		"transceiver": {"form-factor", "vendor", "serial-number"},
-		"fiber":       {"physical-medium", "connector-type", "wavelength"},
-		"copper":      {"physical-medium", "ethernet-pmd"},
-		"sfp":         {"form-factor", "vendor-part-number"},
-		"mac":         {"hw-mac-address", "system-id-mac"},
-		"power":       {"input-power", "output-power", "laser-bias-current"},
-		"vendor":      {"vendor", "vendor-part-number", "vendor-serial-number"},
-		"aggregate":   {"aggregate-id", "lag-type", "min-links"},
-		"lacp":        {"lacp-mode", "lacp-port-priority", "interval"},
-		"tagged":      {"vlan-tagging", "vlan-id"},
-		"physical":    {"physical-medium", "linecard", "forwarding-complex"},
-		"hardware":    {"hw-mac-address", "form-factor", "vendor"},
-	}
+	// Use field keywords mapping from configuration
+	fieldKeywords := FieldKeywordMappings()
 
 	// Function to find matching available fields
 	findMatchingFields := func(keywords []string) []string {
@@ -214,22 +180,113 @@ func isSkipWord(word string) bool {
 	return skipWords[word]
 }
 
-// ExtractConditions extracts conditions for WHERE clause
+// ExtractConditions extracts conditions for WHERE clause using dictionary-based approach
 func ExtractConditions(query, tablePath string) map[string]string {
 	conditions := make(map[string]string)
 	lower := strings.ToLower(query)
 
-	extractInterfaceConditions(lower, tablePath, conditions)
-	extractEthernetConditions(lower, tablePath, conditions)
-	extractVLANConditions(lower, tablePath, conditions)
-	extractLAGConditions(lower, tablePath, conditions)
-	extractTransceiverConditions(lower, tablePath, conditions)
-	extractBGPConditions(lower, tablePath, conditions)
-	extractAlarmConditions(lower, tablePath, conditions)
-	extractProcessConditions(lower, tablePath, conditions)
+	// Apply standard field mappings
+	applyFieldMappings(lower, tablePath, conditions)
+	
+	// Apply regex-based mappings for value extraction
+	applyRegexMappings(lower, tablePath, conditions)
+	
+	// Apply conditional mappings based on context
+	applyConditionalMappings(lower, tablePath, conditions)
+	
+	// Fallback to legacy extraction for uncovered cases
 	extractNumericConditions(lower, conditions)
 
 	return conditions
+}
+
+// applyFieldMappings applies standard field mappings from configuration
+func applyFieldMappings(lower, tablePath string, conditions map[string]string) {
+	mappings := GetFieldMappings()
+	
+	for _, mapping := range mappings {
+		// Check if this mapping applies to the current table
+		if !isValidForTable(mapping, tablePath) {
+			continue
+		}
+		
+		// Check if any pattern matches the query
+		for _, pattern := range mapping.Patterns {
+			if strings.Contains(lower, strings.ToLower(pattern)) {
+				conditions[mapping.FieldName] = mapping.Value
+				break // Only apply first matching pattern for this mapping
+			}
+		}
+	}
+}
+
+// applyRegexMappings applies regex-based mappings for value extraction
+func applyRegexMappings(lower, tablePath string, conditions map[string]string) {
+	mappings := GetRegexMappings()
+	
+	for _, mapping := range mappings {
+		// Check if this mapping applies to the current table
+		if !isValidForTable(mapping, tablePath) {
+			continue
+		}
+		
+		// Check if any pattern matches and extract value
+		for _, pattern := range mapping.Patterns {
+			if strings.Contains(lower, strings.ToLower(pattern)) {
+				if mapping.ValuePattern != nil {
+					if matches := mapping.ValuePattern.FindStringSubmatch(lower); len(matches) > 1 {
+						conditions[mapping.FieldName] = matches[1]
+					}
+				}
+				break
+			}
+		}
+	}
+}
+
+// applyConditionalMappings applies context-dependent mappings
+func applyConditionalMappings(lower, tablePath string, conditions map[string]string) {
+	mappings := GetConditionalMappings()
+	
+	for _, mapping := range mappings {
+		if mapping.Condition(lower, tablePath) {
+			for _, fieldMapping := range mapping.Mappings {
+				conditions[fieldMapping.FieldName] = fieldMapping.Value
+			}
+		}
+	}
+}
+
+// isValidForTable checks if a field mapping is valid for the given table
+func isValidForTable(mapping FieldMapping, tablePath string) bool {
+	// If no table restrictions, it's valid for all tables
+	if len(mapping.ValidTables) == 0 && len(mapping.RequiredTableKeywords) == 0 {
+		return true
+	}
+	
+	// Check if table path matches any valid table patterns
+	tablePathLower := strings.ToLower(tablePath)
+	for _, validTable := range mapping.ValidTables {
+		if strings.Contains(tablePathLower, strings.ToLower(validTable)) {
+			return true
+		}
+	}
+	
+	// Check if table path contains all required keywords
+	if len(mapping.RequiredTableKeywords) > 0 {
+		hasAllKeywords := true
+		for _, keyword := range mapping.RequiredTableKeywords {
+			if !strings.Contains(tablePathLower, strings.ToLower(keyword)) {
+				hasAllKeywords = false
+				break
+			}
+		}
+		if hasAllKeywords {
+			return true
+		}
+	}
+	
+	return false
 }
 
 func extractInterfaceConditions(lower, tablePath string, conditions map[string]string) {
