@@ -50,6 +50,24 @@ func ExtractFields(query, tablePath string, embeddingEntry *models.EmbeddingEntr
 		"octets":      {"in-octets", "out-octets"},
 		"mtu":         {"mtu", "ip-mtu", "oper-ip-mtu"},
 		"drops":       {"in-drops", "out-drops", "in-discards", "out-discards"},
+		
+		// Enhanced networking field mappings
+		"speed":       {"port-speed", "lag-speed", "member-speed"},
+		"vlan":        {"vlan-tagging", "vlan-id", "tpid"},
+		"lag":         {"aggregate-id", "lag-type", "lacp-mode"},
+		"optical":     {"form-factor", "connector-type", "wavelength"},
+		"transceiver": {"form-factor", "vendor", "serial-number"},
+		"fiber":       {"physical-medium", "connector-type", "wavelength"},
+		"copper":      {"physical-medium", "ethernet-pmd"},
+		"sfp":         {"form-factor", "vendor-part-number"},
+		"mac":         {"hw-mac-address", "system-id-mac"},
+		"power":       {"input-power", "output-power", "laser-bias-current"},
+		"vendor":      {"vendor", "vendor-part-number", "vendor-serial-number"},
+		"aggregate":   {"aggregate-id", "lag-type", "min-links"},
+		"lacp":        {"lacp-mode", "lacp-port-priority", "interval"},
+		"tagged":      {"vlan-tagging", "vlan-id"},
+		"physical":    {"physical-medium", "linecard", "forwarding-complex"},
+		"hardware":    {"hw-mac-address", "form-factor", "vendor"},
 	}
 
 	// Function to find matching available fields
@@ -202,6 +220,10 @@ func ExtractConditions(query, tablePath string) map[string]string {
 	lower := strings.ToLower(query)
 
 	extractInterfaceConditions(lower, tablePath, conditions)
+	extractEthernetConditions(lower, tablePath, conditions)
+	extractVLANConditions(lower, tablePath, conditions)
+	extractLAGConditions(lower, tablePath, conditions)
+	extractTransceiverConditions(lower, tablePath, conditions)
 	extractBGPConditions(lower, tablePath, conditions)
 	extractAlarmConditions(lower, tablePath, conditions)
 	extractProcessConditions(lower, tablePath, conditions)
@@ -225,6 +247,140 @@ func extractInterfaceConditions(lower, tablePath string, conditions map[string]s
 		conditions["admin-state"] = "enable"
 	} else if strings.Contains(lower, "disabled") {
 		conditions["admin-state"] = "disable"
+	}
+}
+
+func extractEthernetConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "ethernet") && !strings.Contains(tablePath, "interface") {
+		return
+	}
+
+	// Port speed extraction - handle various speed formats
+	speedPatterns := map[string]string{
+		"100g":     "100G",
+		"100gbps":  "100G",
+		"100 gbps": "100G",
+		"40g":      "40G",
+		"40gbps":   "40G",
+		"25g":      "25G",
+		"25gbps":   "25G",
+		"10g":      "10G",
+		"10gbps":   "10G",
+		"1g":       "1G",
+		"1gbps":    "1G",
+		"gigabit":  "1G",
+		"400g":     "400G",
+		"400gbps":  "400G",
+		"50g":      "50G",
+		"50gbps":   "50G",
+	}
+
+	for pattern, speed := range speedPatterns {
+		if strings.Contains(lower, pattern) {
+			conditions["port-speed"] = speed
+			break
+		}
+	}
+
+	// Physical medium extraction
+	if strings.Contains(lower, "fiber") || strings.Contains(lower, "optical") {
+		conditions["physical-medium"] = "fiber"
+	} else if strings.Contains(lower, "copper") || strings.Contains(lower, "dac") {
+		conditions["physical-medium"] = "copper"
+	}
+}
+
+func extractVLANConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "interface") && !strings.Contains(tablePath, "vlan") {
+		return
+	}
+
+	// VLAN tagging conditions
+	if strings.Contains(lower, "vlan tagging enabled") || strings.Contains(lower, "vlan-tagging") {
+		conditions["vlan-tagging"] = "true"
+	} else if strings.Contains(lower, "vlan tagging disabled") || strings.Contains(lower, "no vlan") {
+		conditions["vlan-tagging"] = "false"
+	}
+
+	// VLAN ID extraction - look for patterns like "vlan 100", "vlan id 200"
+	vlanPattern := regexp.MustCompile(`vlan\s+(?:id\s+)?(\d+)`)
+	if matches := vlanPattern.FindStringSubmatch(lower); len(matches) > 1 {
+		conditions["vlan-id"] = matches[1]
+	}
+
+	// Tagged/untagged conditions
+	if strings.Contains(lower, "tagged") && !strings.Contains(lower, "untagged") {
+		conditions["vlan-tagging"] = "true"
+	} else if strings.Contains(lower, "untagged") {
+		conditions["vlan-tagging"] = "false"
+	}
+}
+
+func extractLAGConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "lag") && !strings.Contains(tablePath, "interface") {
+		return
+	}
+
+	// LAG membership conditions
+	if strings.Contains(lower, "lag members") || strings.Contains(lower, "lag member") {
+		// This suggests we want interfaces that are members of LAGs
+		conditions["aggregate-id"] = "!= null"
+	}
+
+	// Specific LAG conditions
+	lagPattern := regexp.MustCompile(`lag\s*(\d+)`)
+	if matches := lagPattern.FindStringSubmatch(lower); len(matches) > 1 {
+		conditions["aggregate-id"] = "lag" + matches[1]
+	}
+
+	// LACP conditions
+	if strings.Contains(lower, "lacp") {
+		conditions["lacp-mode"] = "active"
+	}
+
+	// LAG type conditions
+	if strings.Contains(lower, "static lag") {
+		conditions["lag-type"] = "static"
+	} else if strings.Contains(lower, "dynamic lag") {
+		conditions["lag-type"] = "lacp"
+	}
+}
+
+func extractTransceiverConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "transceiver") && !strings.Contains(tablePath, "interface") {
+		return
+	}
+
+	// Form factor conditions
+	formFactorPatterns := map[string]string{
+		"sfp+":   "SFP+",
+		"sfp":    "SFP",
+		"qsfp28": "QSFP28",
+		"qsfp+":  "QSFP+",
+		"qsfp":   "QSFP",
+		"cfp":    "CFP",
+		"xfp":    "XFP",
+	}
+
+	for pattern, formFactor := range formFactorPatterns {
+		if strings.Contains(lower, pattern) {
+			conditions["form-factor"] = formFactor
+			break
+		}
+	}
+
+	// Connector type conditions
+	if strings.Contains(lower, "lc connector") || strings.Contains(lower, "lc") {
+		conditions["connector-type"] = "LC"
+	} else if strings.Contains(lower, "mpo") || strings.Contains(lower, "mtp") {
+		conditions["connector-type"] = "MPO"
+	}
+
+	// Optical/electrical detection
+	if strings.Contains(lower, "optical") || strings.Contains(lower, "fiber") {
+		conditions["ethernet-pmd"] = "!~ \"BASE-T\""
+	} else if strings.Contains(lower, "electrical") || strings.Contains(lower, "copper") {
+		conditions["ethernet-pmd"] = "~ \"BASE-T\""
 	}
 }
 
@@ -314,7 +470,7 @@ func normalizeOperator(op string) string {
 	}
 }
 
-// GenerateWhereClause generates WHERE clause
+// GenerateWhereClause generates WHERE clause with field validation
 func GenerateWhereClause(tablePath, query string) string {
 	var whereParts []string
 
@@ -340,6 +496,54 @@ func GenerateWhereClause(tablePath, query string) string {
 			whereParts = append(whereParts, fmt.Sprintf("%s %s", field, value))
 		} else {
 			whereParts = append(whereParts, fmt.Sprintf("%s = %q", field, value))
+		}
+	}
+
+	if len(whereParts) == 0 {
+		return ""
+	}
+
+	return strings.Join(whereParts, " and ")
+}
+
+// GenerateWhereClauseWithValidation generates WHERE clause with field validation
+func GenerateWhereClauseWithValidation(tablePath, query string, availableFields []string) string {
+	var whereParts []string
+
+	// Extract node names (support multiple nodes)
+	nodeNames := ExtractNodeNames(query)
+	if len(nodeNames) > 0 && strings.Contains(tablePath, ".namespace.node.") {
+		if len(nodeNames) == 1 {
+			whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name = %q", nodeNames[0]))
+		} else {
+			// Multiple nodes: use IN clause
+			nodeList := make([]string, len(nodeNames))
+			for i, name := range nodeNames {
+				nodeList[i] = fmt.Sprintf("%q", name)
+			}
+			whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name in [%s]", strings.Join(nodeList, ", ")))
+		}
+	}
+
+	// Extract other conditions and validate against available fields
+	conditions := ExtractConditions(query, tablePath)
+	for field, value := range conditions {
+		// Check if field exists in available fields
+		fieldExists := false
+		for _, availableField := range availableFields {
+			if availableField == field {
+				fieldExists = true
+				break
+			}
+		}
+		
+		// Only add condition if field exists in the table
+		if fieldExists {
+			if strings.HasPrefix(value, ">") || strings.HasPrefix(value, "<") || strings.HasPrefix(value, "=") || strings.HasPrefix(value, "!") {
+				whereParts = append(whereParts, fmt.Sprintf("%s %s", field, value))
+			} else {
+				whereParts = append(whereParts, fmt.Sprintf("%s = %q", field, value))
+			}
 		}
 	}
 
