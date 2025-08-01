@@ -229,23 +229,23 @@ func (e *Engine) bgpContextScore(queryLower, key string) float64 {
 	// Handle BGP neighbor queries - prioritize neighbor table for session queries
 	if strings.Contains(queryLower, "neighbor") || strings.Contains(queryLower, "session") || strings.Contains(queryLower, "peer") {
 		score += e.containsAllScore(key, []string{"bgp", ".neighbor"}, e.config.BGPNeighborMatch)
-		
+
 		// Extra boost for session state queries that should return neighbor table
 		if hasSessionStateKeywords(queryLower) && strings.HasSuffix(key, ".neighbor") {
 			score += e.config.BGPSessionStateBonus
 		}
-		
+
 		// Penalty for non-neighbor tables when asking about sessions/neighbors
 		if !strings.Contains(key, ".neighbor") && hasSessionStateKeywords(queryLower) {
 			score += e.config.BGPNonNeighborPenalty
 		}
-		
+
 		// Strong penalty for maintenance tables when asking about general sessions
 		if strings.Contains(key, "maintenance") && !strings.Contains(queryLower, "maintenance") && hasSessionStateKeywords(queryLower) {
 			score += e.config.BGPMaintenanceSessionPenalty
 		}
 	}
-	
+
 	// General BGP scoring for non-neighbor queries
 	if strings.Contains(queryLower, "bgp") && !strings.Contains(queryLower, "neighbor") && !strings.Contains(queryLower, "session") {
 		score += e.containsAllScore(key, []string{"bgp"}, e.config.BGPGeneralMatch)
@@ -253,7 +253,7 @@ func (e *Engine) bgpContextScore(queryLower, key string) float64 {
 
 	// Maintenance penalty
 	score += e.conditionalScore(strings.Contains(key, "maintenance"), e.config.BGPMaintenancePenalty)
-	
+
 	return score
 }
 

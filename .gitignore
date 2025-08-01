@@ -67,3 +67,5 @@ temp/
 
 CLAUDE.md
 patch.sh
+
+node_modules/**
