@@ -28,8 +28,12 @@ type ScoringConfig struct {
 	InterfaceProtocolPenalty float64
 
 	// BGP scoring
-	BGPNeighborMatch      float64
-	BGPMaintenancePenalty float64
+	BGPNeighborMatch             float64
+	BGPSessionStateBonus         float64
+	BGPNonNeighborPenalty        float64
+	BGPGeneralMatch              float64
+	BGPMaintenancePenalty        float64
+	BGPMaintenanceSessionPenalty float64
 
 	// Path depth scoring
 	PathDepthBonus2        float64
@@ -91,8 +95,12 @@ func DefaultScoringConfig() *ScoringConfig {
 		InterfaceProtocolPenalty: -15,
 
 		// BGP scoring
-		BGPNeighborMatch:      15,
-		BGPMaintenancePenalty: -10,
+		BGPNeighborMatch:             15,
+		BGPSessionStateBonus:         20,
+		BGPNonNeighborPenalty:        -15,
+		BGPGeneralMatch:              10,
+		BGPMaintenancePenalty:        -10,
+		BGPMaintenanceSessionPenalty: -25,
 
 		// Path depth scoring
 		PathDepthBonus2:        20,

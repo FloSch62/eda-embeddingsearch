@@ -33,24 +33,8 @@ func ExtractFields(query, tablePath string, embeddingEntry *models.EmbeddingEntr
 	// Get available fields from embedding
 	availableFields := ParseEmbeddingText(embeddingEntry.Text)
 
-	// Field keywords to field names mapping
-	fieldKeywords := map[string][]string{
-		"state":       {"admin-state", "oper-state", "state"},
-		"status":      {"status", "oper-state", "admin-state"},
-		"description": {"description"},
-		"name":        {"name"},
-		"memory":      {"memory", "memory-usage", "used"},
-		"cpu":         {"cpu", "cpu-usage"},
-		"traffic":     {"in-octets", "out-octets"},
-		"bandwidth":   {"in-octets", "out-octets"},
-		"packets":     {"in-packets", "out-packets"},
-		"errors":      {"in-error-packets", "out-error-packets", "in-errors", "out-errors"},
-		"severity":    {"severity"},
-		"time":        {"time-created", "last-change", "last-clear"},
-		"octets":      {"in-octets", "out-octets"},
-		"mtu":         {"mtu", "ip-mtu", "oper-ip-mtu"},
-		"drops":       {"in-drops", "out-drops", "in-discards", "out-discards"},
-	}
+	// Use field keywords mapping from configuration
+	fieldKeywords := FieldKeywordMappings()
 
 	// Function to find matching available fields
 	findMatchingFields := func(keywords []string) []string {
@@ -114,6 +98,43 @@ func ExtractNodeName(query string) string {
 	return ""
 }
 
+// ExtractNodeNames extracts all node names from query for multi-node support
+func ExtractNodeNames(query string) []string {
+	var nodeNames []string
+	words := strings.Fields(strings.ToLower(query))
+	
+	for i, w := range words {
+		w = cleanPunctuation(w)
+
+		// Skip generic references
+		if isGenericNodeReference(w) {
+			continue
+		}
+
+		// Check for specific node patterns
+		if nodeName := checkNodePattern(w); nodeName != "" {
+			nodeNames = append(nodeNames, nodeName)
+		}
+
+		// Check for "on <nodename>" or "for <nodename>" patterns
+		if nodeName := checkPrepositionPattern(w, i, words); nodeName != "" {
+			nodeNames = append(nodeNames, nodeName)
+		}
+	}
+	
+	// Remove duplicates
+	uniqueNodes := make([]string, 0, len(nodeNames))
+	seen := make(map[string]bool)
+	for _, node := range nodeNames {
+		if !seen[node] {
+			uniqueNodes = append(uniqueNodes, node)
+			seen[node] = true
+		}
+	}
+	
+	return uniqueNodes
+}
+
 func cleanPunctuation(word string) string {
 	word = strings.TrimSuffix(word, "?")
 	word = strings.TrimSuffix(word, "!")
@@ -159,17 +180,113 @@ func isSkipWord(word string) bool {
 	return skipWords[word]
 }
 
-// ExtractConditions extracts conditions for WHERE clause
+// ExtractConditions extracts conditions for WHERE clause using dictionary-based approach
 func ExtractConditions(query, tablePath string) map[string]string {
 	conditions := make(map[string]string)
 	lower := strings.ToLower(query)
 
-	extractInterfaceConditions(lower, tablePath, conditions)
-	extractAlarmConditions(lower, tablePath, conditions)
-	extractProcessConditions(lower, tablePath, conditions)
+	// Apply standard field mappings
+	applyFieldMappings(lower, tablePath, conditions)
+	
+	// Apply regex-based mappings for value extraction
+	applyRegexMappings(lower, tablePath, conditions)
+	
+	// Apply conditional mappings based on context
+	applyConditionalMappings(lower, tablePath, conditions)
+	
+	// Fallback to legacy extraction for uncovered cases
 	extractNumericConditions(lower, conditions)
 
 	return conditions
+}
+
+// applyFieldMappings applies standard field mappings from configuration
+func applyFieldMappings(lower, tablePath string, conditions map[string]string) {
+	mappings := GetFieldMappings()
+	
+	for _, mapping := range mappings {
+		// Check if this mapping applies to the current table
+		if !isValidForTable(mapping, tablePath) {
+			continue
+		}
+		
+		// Check if any pattern matches the query
+		for _, pattern := range mapping.Patterns {
+			if strings.Contains(lower, strings.ToLower(pattern)) {
+				conditions[mapping.FieldName] = mapping.Value
+				break // Only apply first matching pattern for this mapping
+			}
+		}
+	}
+}
+
+// applyRegexMappings applies regex-based mappings for value extraction
+func applyRegexMappings(lower, tablePath string, conditions map[string]string) {
+	mappings := GetRegexMappings()
+	
+	for _, mapping := range mappings {
+		// Check if this mapping applies to the current table
+		if !isValidForTable(mapping, tablePath) {
+			continue
+		}
+		
+		// Check if any pattern matches and extract value
+		for _, pattern := range mapping.Patterns {
+			if strings.Contains(lower, strings.ToLower(pattern)) {
+				if mapping.ValuePattern != nil {
+					if matches := mapping.ValuePattern.FindStringSubmatch(lower); len(matches) > 1 {
+						conditions[mapping.FieldName] = matches[1]
+					}
+				}
+				break
+			}
+		}
+	}
+}
+
+// applyConditionalMappings applies context-dependent mappings
+func applyConditionalMappings(lower, tablePath string, conditions map[string]string) {
+	mappings := GetConditionalMappings()
+	
+	for _, mapping := range mappings {
+		if mapping.Condition(lower, tablePath) {
+			for _, fieldMapping := range mapping.Mappings {
+				conditions[fieldMapping.FieldName] = fieldMapping.Value
+			}
+		}
+	}
+}
+
+// isValidForTable checks if a field mapping is valid for the given table
+func isValidForTable(mapping FieldMapping, tablePath string) bool {
+	// If no table restrictions, it's valid for all tables
+	if len(mapping.ValidTables) == 0 && len(mapping.RequiredTableKeywords) == 0 {
+		return true
+	}
+	
+	// Check if table path matches any valid table patterns
+	tablePathLower := strings.ToLower(tablePath)
+	for _, validTable := range mapping.ValidTables {
+		if strings.Contains(tablePathLower, strings.ToLower(validTable)) {
+			return true
+		}
+	}
+	
+	// Check if table path contains all required keywords
+	if len(mapping.RequiredTableKeywords) > 0 {
+		hasAllKeywords := true
+		for _, keyword := range mapping.RequiredTableKeywords {
+			if !strings.Contains(tablePathLower, strings.ToLower(keyword)) {
+				hasAllKeywords = false
+				break
+			}
+		}
+		if hasAllKeywords {
+			return true
+		}
+	}
+	
+	return false
 }
 
 func extractInterfaceConditions(lower, tablePath string, conditions map[string]string) {
@@ -187,6 +304,176 @@ func extractInterfaceConditions(lower, tablePath string, conditions map[string]s
 		conditions["admin-state"] = "enable"
 	} else if strings.Contains(lower, "disabled") {
 		conditions["admin-state"] = "disable"
+	}
+}
+
+func extractEthernetConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "ethernet") && !strings.Contains(tablePath, "interface") {
+		return
+	}
+
+	// Port speed extraction - handle various speed formats
+	speedPatterns := map[string]string{
+		"100g":     "100G",
+		"100gbps":  "100G",
+		"100 gbps": "100G",
+		"40g":      "40G",
+		"40gbps":   "40G",
+		"25g":      "25G",
+		"25gbps":   "25G",
+		"10g":      "10G",
+		"10gbps":   "10G",
+		"1g":       "1G",
+		"1gbps":    "1G",
+		"gigabit":  "1G",
+		"400g":     "400G",
+		"400gbps":  "400G",
+		"50g":      "50G",
+		"50gbps":   "50G",
+	}
+
+	for pattern, speed := range speedPatterns {
+		if strings.Contains(lower, pattern) {
+			conditions["port-speed"] = speed
+			break
+		}
+	}
+
+	// Physical medium extraction
+	if strings.Contains(lower, "fiber") || strings.Contains(lower, "optical") {
+		conditions["physical-medium"] = "fiber"
+	} else if strings.Contains(lower, "copper") || strings.Contains(lower, "dac") {
+		conditions["physical-medium"] = "copper"
+	}
+}
+
+func extractVLANConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "interface") && !strings.Contains(tablePath, "vlan") {
+		return
+	}
+
+	// VLAN tagging conditions
+	if strings.Contains(lower, "vlan tagging enabled") || strings.Contains(lower, "vlan-tagging") {
+		conditions["vlan-tagging"] = "true"
+	} else if strings.Contains(lower, "vlan tagging disabled") || strings.Contains(lower, "no vlan") {
+		conditions["vlan-tagging"] = "false"
+	}
+
+	// VLAN ID extraction - look for patterns like "vlan 100", "vlan id 200"
+	vlanPattern := regexp.MustCompile(`vlan\s+(?:id\s+)?(\d+)`)
+	if matches := vlanPattern.FindStringSubmatch(lower); len(matches) > 1 {
+		conditions["vlan-id"] = matches[1]
+	}
+
+	// Tagged/untagged conditions
+	if strings.Contains(lower, "tagged") && !strings.Contains(lower, "untagged") {
+		conditions["vlan-tagging"] = "true"
+	} else if strings.Contains(lower, "untagged") {
+		conditions["vlan-tagging"] = "false"
+	}
+}
+
+func extractLAGConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "lag") && !strings.Contains(tablePath, "interface") {
+		return
+	}
+
+	// LAG membership conditions
+	if strings.Contains(lower, "lag members") || strings.Contains(lower, "lag member") {
+		// This suggests we want interfaces that are members of LAGs
+		conditions["aggregate-id"] = "!= null"
+	}
+
+	// Specific LAG conditions
+	lagPattern := regexp.MustCompile(`lag\s*(\d+)`)
+	if matches := lagPattern.FindStringSubmatch(lower); len(matches) > 1 {
+		conditions["aggregate-id"] = "lag" + matches[1]
+	}
+
+	// LACP conditions
+	if strings.Contains(lower, "lacp") {
+		conditions["lacp-mode"] = "active"
+	}
+
+	// LAG type conditions
+	if strings.Contains(lower, "static lag") {
+		conditions["lag-type"] = "static"
+	} else if strings.Contains(lower, "dynamic lag") {
+		conditions["lag-type"] = "lacp"
+	}
+}
+
+func extractTransceiverConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "transceiver") && !strings.Contains(tablePath, "interface") {
+		return
+	}
+
+	// Form factor conditions
+	formFactorPatterns := map[string]string{
+		"sfp+":   "SFP+",
+		"sfp":    "SFP",
+		"qsfp28": "QSFP28",
+		"qsfp+":  "QSFP+",
+		"qsfp":   "QSFP",
+		"cfp":    "CFP",
+		"xfp":    "XFP",
+	}
+
+	for pattern, formFactor := range formFactorPatterns {
+		if strings.Contains(lower, pattern) {
+			conditions["form-factor"] = formFactor
+			break
+		}
+	}
+
+	// Connector type conditions
+	if strings.Contains(lower, "lc connector") || strings.Contains(lower, "lc") {
+		conditions["connector-type"] = "LC"
+	} else if strings.Contains(lower, "mpo") || strings.Contains(lower, "mtp") {
+		conditions["connector-type"] = "MPO"
+	}
+
+	// Optical/electrical detection
+	if strings.Contains(lower, "optical") || strings.Contains(lower, "fiber") {
+		conditions["ethernet-pmd"] = "!~ \"BASE-T\""
+	} else if strings.Contains(lower, "electrical") || strings.Contains(lower, "copper") {
+		conditions["ethernet-pmd"] = "~ \"BASE-T\""
+	}
+}
+
+func extractBGPConditions(lower, tablePath string, conditions map[string]string) {
+	if !strings.Contains(tablePath, "bgp") {
+		return
+	}
+
+	// BGP session state conditions
+	if strings.Contains(tablePath, "neighbor") {
+		if strings.Contains(lower, "established") {
+			conditions["session-state"] = "established"
+		} else if strings.Contains(lower, "idle") {
+			conditions["session-state"] = "idle"
+		} else if strings.Contains(lower, "active") {
+			conditions["session-state"] = "active"
+		} else if strings.Contains(lower, "connect") {
+			conditions["session-state"] = "connect"
+		} else if strings.Contains(lower, "opensent") {
+			conditions["session-state"] = "opensent"
+		} else if strings.Contains(lower, "openconfirm") {
+			conditions["session-state"] = "openconfirm"
+		}
+		
+		// Handle "down" as a general term for non-established sessions
+		if strings.Contains(lower, "down") && !strings.Contains(lower, "established") {
+			// Use != established to catch any non-established state
+			conditions["session-state"] = "!= \"established\""
+		}
+		
+		// BGP peer type conditions
+		if strings.Contains(lower, "ebgp") || strings.Contains(lower, "external") {
+			conditions["peer-type"] = "external"
+		} else if strings.Contains(lower, "ibgp") || strings.Contains(lower, "internal") {
+			conditions["peer-type"] = "internal"
+		}
 	}
 }
 
@@ -240,23 +527,80 @@ func normalizeOperator(op string) string {
 	}
 }
 
-// GenerateWhereClause generates WHERE clause
+// GenerateWhereClause generates WHERE clause with field validation
 func GenerateWhereClause(tablePath, query string) string {
 	var whereParts []string
 
-	// Extract node name
-	nodeName := ExtractNodeName(query)
-	if nodeName != "" && strings.Contains(tablePath, ".namespace.node.") {
-		whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name = %q", nodeName))
+	// Extract node names (support multiple nodes)
+	nodeNames := ExtractNodeNames(query)
+	if len(nodeNames) > 0 && strings.Contains(tablePath, ".namespace.node.") {
+		if len(nodeNames) == 1 {
+			whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name = %q", nodeNames[0]))
+		} else {
+			// Multiple nodes: use IN clause
+			nodeList := make([]string, len(nodeNames))
+			for i, name := range nodeNames {
+				nodeList[i] = fmt.Sprintf("%q", name)
+			}
+			whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name in [%s]", strings.Join(nodeList, ", ")))
+		}
 	}
 
 	// Extract other conditions
 	conditions := ExtractConditions(query, tablePath)
 	for field, value := range conditions {
-		if strings.HasPrefix(value, ">") || strings.HasPrefix(value, "<") || strings.HasPrefix(value, "=") {
+		if strings.HasPrefix(value, ">") || strings.HasPrefix(value, "<") || strings.HasPrefix(value, "=") || strings.HasPrefix(value, "!") {
 			whereParts = append(whereParts, fmt.Sprintf("%s %s", field, value))
 		} else {
 			whereParts = append(whereParts, fmt.Sprintf("%s = %q", field, value))
+		}
+	}
+
+	if len(whereParts) == 0 {
+		return ""
+	}
+
+	return strings.Join(whereParts, " and ")
+}
+
+// GenerateWhereClauseWithValidation generates WHERE clause with field validation
+func GenerateWhereClauseWithValidation(tablePath, query string, availableFields []string) string {
+	var whereParts []string
+
+	// Extract node names (support multiple nodes)
+	nodeNames := ExtractNodeNames(query)
+	if len(nodeNames) > 0 && strings.Contains(tablePath, ".namespace.node.") {
+		if len(nodeNames) == 1 {
+			whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name = %q", nodeNames[0]))
+		} else {
+			// Multiple nodes: use IN clause
+			nodeList := make([]string, len(nodeNames))
+			for i, name := range nodeNames {
+				nodeList[i] = fmt.Sprintf("%q", name)
+			}
+			whereParts = append(whereParts, fmt.Sprintf(".namespace.node.name in [%s]", strings.Join(nodeList, ", ")))
+		}
+	}
+
+	// Extract other conditions and validate against available fields
+	conditions := ExtractConditions(query, tablePath)
+	for field, value := range conditions {
+		// Check if field exists in available fields
+		fieldExists := false
+		for _, availableField := range availableFields {
+			if availableField == field {
+				fieldExists = true
+				break
+			}
+		}
+		
+		// Only add condition if field exists in the table
+		if fieldExists {
+			if strings.HasPrefix(value, ">") || strings.HasPrefix(value, "<") || strings.HasPrefix(value, "=") || strings.HasPrefix(value, "!") {
+				whereParts = append(whereParts, fmt.Sprintf("%s %s", field, value))
+			} else {
+				whereParts = append(whereParts, fmt.Sprintf("%s = %q", field, value))
+			}
 		}
 	}
 

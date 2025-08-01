@@ -98,7 +98,7 @@ func (e *Engine) generateIndexedSearchResults(candidates []scoredCandidate, quer
 		eqlQuery := models.EQLQuery{
 			Table:       cand.key,
 			Fields:      eql.ExtractFields(query, cand.key, &entry),
-			WhereClause: eql.GenerateWhereClause(cand.key, query),
+			WhereClause: eql.GenerateWhereClauseWithValidation(cand.key, query, fields),
 			OrderBy:     eql.ExtractOrderBy(query, cand.key, &entry),
 			Limit:       eql.ExtractLimit(query),
 			Delta:       eql.ExtractDelta(query),
